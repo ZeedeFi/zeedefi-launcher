@@ -1,7 +1,7 @@
 //! `src/components/settings_panel.rs` — tiroir de paramètres (côté droit).
 //!
-//! Navigation clavier/manette (haut/bas, A, B) et souris. Le panneau ne modifie
-//! rien lui-même : il retourne une `SettingAction` que `app.rs` applique.
+//! Navigation exclusivement clavier/manette (haut/bas, A, B). Le panneau ne
+//! modifie rien lui-même : il retourne une `SettingAction` que `app.rs` applique.
 
 use egui::{Color32, Id, Pos2, Rect, Rounding, Sense, Stroke, Vec2};
 
@@ -27,7 +27,6 @@ pub struct SettingsPanel {
     pub game_count: usize,
     pub error_code: Option<u32>,
     confirm: Option<usize>,
-    ignore_outside_click: bool,
 }
 
 /// Action produite par le panneau.
@@ -55,14 +54,12 @@ impl SettingsPanel {
             game_count: 0,
             error_code: None,
             confirm: None,
-            ignore_outside_click: false,
         }
     }
 
-    /// Ouvre le panneau en évitant qu'un clic d'ouverture ne le referme aussitôt.
+    /// Ouvre le panneau.
     pub fn open_now(&mut self) {
         self.open = true;
-        self.ignore_outside_click = true;
         self.confirm = None;
     }
 
@@ -84,15 +81,21 @@ impl SettingsPanel {
         match action {
             Action::Navigate(Direction::Up) => {
                 self.confirm = None;
-                self.selected = self.selected.saturating_sub(1);
+                self.selected = (self.selected + ROW_COUNT - 1) % ROW_COUNT;
                 None
             }
             Action::Navigate(Direction::Down) => {
                 self.confirm = None;
-                if self.selected + 1 < ROW_COUNT {
-                    self.selected += 1;
-                }
+                self.selected = (self.selected + 1) % ROW_COUNT;
                 None
+            }
+            Action::Navigate(Direction::Left | Direction::Right) => {
+                // Gauche/droite agissent directement sur les interrupteurs.
+                if self.selected <= 1 {
+                    self.activate(self.selected)
+                } else {
+                    None
+                }
             }
             Action::Confirm => self.activate(self.selected),
             Action::Back => Some(SettingAction::Close),
@@ -157,7 +160,7 @@ impl SettingsPanel {
             theme::with_alpha(Color32::BLACK, self.anim * 0.52),
         );
 
-        let mut action = None;
+        let action = None;
         let area = egui::Area::new(Id::new("settings_panel_area"))
             .fixed_pos(Pos2::new(panel_x, viewport.min.y))
             .order(egui::Order::Foreground);
@@ -199,32 +202,12 @@ impl SettingsPanel {
                 palette.text_secondary,
             );
 
+            // Indicateur de fermeture : B / Échap ferment le tiroir.
             let close_rect = Rect::from_center_size(
                 Pos2::new(rect.max.x - 40.0, rect.min.y + 46.0),
                 Vec2::splat(34.0),
             );
-            let close_response = ui
-                .interact(close_rect, Id::new("settings_close"), Sense::click())
-                .on_hover_cursor(egui::CursorIcon::PointingHand);
-            if close_response.hovered() {
-                painter.circle_filled(
-                    close_rect.center(),
-                    17.0,
-                    theme::with_alpha(Color32::WHITE, 0.10),
-                );
-            }
-            icons::close(
-                &painter,
-                close_rect.shrink(9.0),
-                if close_response.hovered() {
-                    palette.text_primary
-                } else {
-                    palette.text_secondary
-                },
-            );
-            if close_response.clicked() {
-                action = Some(SettingAction::Close);
-            }
+            icons::close(&painter, close_rect.shrink(9.0), palette.text_secondary);
 
             painter.line_segment(
                 [
@@ -260,36 +243,22 @@ impl SettingsPanel {
                         Pos2::new(left, y),
                         Vec2::new(row_width, ROW_HEIGHT),
                     );
-                    let response = ui
-                        .interact(
-                            row_rect,
-                            Id::new(("settings_row", index)),
-                            Sense::click(),
-                        )
-                        .on_hover_cursor(egui::CursorIcon::PointingHand);
-                    let hovered = response.hovered();
                     let selected = index == self.selected;
-                    let active = hovered || selected;
-                    if active {
+                    if selected {
                         let row_rounding = Rounding::same(12.0);
                         painter.rect_filled(
                             row_rect,
                             row_rounding,
-                            theme::with_alpha(
-                                Color32::WHITE,
-                                if hovered { 0.075 } else { 0.05 },
-                            ),
+                            theme::with_alpha(Color32::WHITE, 0.06),
                         );
-                        if selected {
-                            painter.rect_filled(
-                                Rect::from_min_size(
-                                    Pos2::new(row_rect.min.x + 6.0, row_rect.min.y + 12.0),
-                                    Vec2::new(3.0, ROW_HEIGHT - 24.0),
-                                ),
-                                Rounding::same(2.0),
-                                theme::ACCENT,
-                            );
-                        }
+                        painter.rect_filled(
+                            Rect::from_min_size(
+                                Pos2::new(row_rect.min.x + 6.0, row_rect.min.y + 12.0),
+                                Vec2::new(3.0, ROW_HEIGHT - 24.0),
+                            ),
+                            Rounding::same(2.0),
+                            theme::ACCENT,
+                        );
                     }
 
                     let (title, subtitle) = row_texts(index);
@@ -390,15 +359,6 @@ impl SettingsPanel {
                         }
                     }
 
-                    if response.clicked() {
-                        self.selected = index;
-                        if let Some(triggered) = self.activate(index) {
-                            action = Some(triggered);
-                        } else {
-                            self.confirm = Some(index);
-                        }
-                    }
-
                     y += ROW_HEIGHT;
                     index += 1;
                 }
@@ -444,26 +404,6 @@ impl SettingsPanel {
                 palette.text_muted,
             );
         });
-
-        // Clic en dehors du tiroir : fermeture (sauf au frame d'ouverture).
-        if self.ignore_outside_click {
-            self.ignore_outside_click = false;
-        } else if action.is_none() {
-            let clicked_outside = context.input(|input| {
-                input.pointer.primary_clicked()
-                    && input
-                        .pointer
-                        .interact_pos()
-                        .map(|pos| !Rect::from_min_size(
-                            Pos2::new(panel_x, viewport.min.y),
-                            Vec2::new(width, viewport.height()),
-                        ).contains(pos))
-                        .unwrap_or(false)
-            });
-            if clicked_outside {
-                action = Some(SettingAction::Close);
-            }
-        }
 
         action
     }

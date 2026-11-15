@@ -39,15 +39,26 @@ Variables d'environnement :
 - `ZEEDEFI_SOCKET` : chemin du socket Unix du démon (défaut `/run/zeedefi/zeedefi.sock`).
 - `ZEEDEFI_ASSET_ROOTS` : racines autorisées pour les assets (séparateur `:`).
 - `RUST_LOG` : niveau de log (défaut `info,zeedefi_launcher=debug`).
+- `ZEEDEFI_FPS=1` : affiche le compteur de frames en bas à gauche.
+- `ZEEDEFI_NO_VSYNC=1` : désactive la synchronisation verticale (diagnostic de performance).
+- `ZEEDEFI_PROFILE` : nom de profil affiché (sinon champ GECOS de `/etc/passwd`).
 
 ## Contrôles
 
 Manette : stick gauche / D-pad = navigation, A = valider, B = retour,
-X = détails, Y = paramètres, stick droit X = défilement rapide,
-gâchettes = page précédente/suivante.
+X = détails, Y = paramètres, Start = menu de profil, stick droit X =
+défilement rapide, gâchettes = page précédente/suivante.
 
 Clavier : flèches = navigation, Entrée/Espace = valider, Échap = retour,
-X = détails, Y/S = paramètres, PageUp/PageDown = pages.
+X = détails, Y/S = paramètres, Tab/P = menu de profil, PageUp/PageDown = pages.
+
+Souris : aucune. L'interface est pilotée exclusivement au clavier ou à la
+manette ; le pointeur système est masqué en permanence et aucun élément n'est
+cliquable. Le focus est unique, toujours visible, et survit aux surcouches.
+
+Navigation : les listes bouclent dans les deux sens, un appui maintenu répète
+le déplacement (400 ms puis toutes les 120 ms), et Gauche/Droite bascule
+directement les interrupteurs du panneau de paramètres.
 
 ## Sécurité
 

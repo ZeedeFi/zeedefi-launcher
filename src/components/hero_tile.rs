@@ -2,27 +2,21 @@
 //!
 //! Le bloc est aligné au-dessus de la grande tuile : surtitre discret, titre
 //! principal, sous-titre puis pastilles d'action (Jouer / Détails / réglages).
+//! L'interface est pilotée exclusivement au clavier ou à la manette : les
+//! pastilles sont peintes, jamais cliquables, et leur état reflète
+//! `hero_action`.
 
-use egui::{Color32, Id, Pos2, Rect, Rounding, Sense, Stroke, Ui, Vec2};
+use egui::{Color32, Pos2, Rect, Rounding, Stroke, Ui, Vec2};
 
 use crate::app::GameEntry;
 use crate::components::icons;
 use crate::theme;
 
-/// Actions retournées par le bloc d'information.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct HeroResponse {
-    pub play: bool,
-    pub details: bool,
-    pub settings: bool,
-}
-
 const PILL_HEIGHT: f32 = 46.0;
 const PILL_GAP: f32 = 12.0;
 
-/// Dessine le bloc d'information et retourne les actions cliquées.
-pub fn draw(ui: &mut Ui, area: Rect, entry: &GameEntry, hero_action: usize) -> HeroResponse {
-    let mut response = HeroResponse::default();
+/// Dessine le bloc d'information du jeu sélectionné.
+pub fn draw(ui: &Ui, area: Rect, entry: &GameEntry, hero_action: usize) {
     let painter = ui.painter_at(area);
 
     let x = area.min.x + theme::CONTENT_MARGIN;
@@ -76,18 +70,7 @@ pub fn draw(ui: &mut Ui, area: Rect, entry: &GameEntry, hero_action: usize) -> H
         Pos2::new(x, pills_top),
         Vec2::new(play_width, PILL_HEIGHT),
     );
-    let play_response = ui
-        .interact(play_rect, Id::new("hero_play"), Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
-    paint_primary_pill(
-        &painter,
-        play_rect,
-        play_response.hovered(),
-        hero_action == 0,
-    );
-    if play_response.clicked() {
-        response.play = true;
-    }
+    paint_primary_pill(&painter, play_rect, hero_action == 0);
 
     // --- Pastille secondaire « Détails » ---
     let details_label = "Détails";
@@ -104,18 +87,7 @@ pub fn draw(ui: &mut Ui, area: Rect, entry: &GameEntry, hero_action: usize) -> H
         Pos2::new(play_rect.max.x + PILL_GAP, pills_top),
         Vec2::new(details_width, PILL_HEIGHT),
     );
-    let details_response = ui
-        .interact(details_rect, Id::new("hero_details"), Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
-    paint_secondary_pill(
-        &painter,
-        details_rect,
-        details_response.hovered(),
-        hero_action == 1,
-    );
-    if details_response.clicked() {
-        response.details = true;
-    }
+    paint_secondary_pill(&painter, details_rect, hero_action == 1);
 
     // --- Bouton rond « Paramètres » ---
     let settings_size = PILL_HEIGHT;
@@ -123,34 +95,20 @@ pub fn draw(ui: &mut Ui, area: Rect, entry: &GameEntry, hero_action: usize) -> H
         Pos2::new(details_rect.max.x + PILL_GAP, pills_top),
         Vec2::splat(settings_size),
     );
-    let settings_response = ui
-        .interact(settings_rect, Id::new("hero_settings"), Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
-    paint_icon_button(
-        &painter,
-        settings_rect,
-        settings_response.hovered(),
-        hero_action == 2,
-    );
+    paint_icon_button(&painter, settings_rect, hero_action == 2);
     icons::sliders(
         &painter,
         settings_rect.shrink(settings_size * 0.31),
         theme::Palette::default().text_primary,
     );
-    if settings_response.clicked() {
-        response.settings = true;
-    }
-
-    response
 }
 
-fn paint_primary_pill(painter: &egui::Painter, rect: Rect, hovered: bool, selected: bool) {
+fn paint_primary_pill(painter: &egui::Painter, rect: Rect, selected: bool) {
     let rounding = Rounding::same(rect.height() * 0.5);
-    let base = theme::ACCENT;
-    let fill = if hovered {
-        theme::lerp_color(base, Color32::WHITE, 0.14)
+    let fill = if selected {
+        theme::ACCENT
     } else {
-        base
+        theme::with_alpha(theme::ACCENT, 0.88)
     };
     painter.rect_filled(rect, rounding, fill);
 
@@ -186,10 +144,13 @@ fn paint_primary_pill(painter: &egui::Painter, rect: Rect, hovered: bool, select
     );
 }
 
-fn paint_secondary_pill(painter: &egui::Painter, rect: Rect, hovered: bool, selected: bool) {
+fn paint_secondary_pill(painter: &egui::Painter, rect: Rect, selected: bool) {
     let rounding = Rounding::same(rect.height() * 0.5);
-    let fill = theme::with_alpha(Color32::WHITE, if hovered { 0.17 } else { 0.10 });
-    painter.rect_filled(rect, rounding, fill);
+    painter.rect_filled(
+        rect,
+        rounding,
+        theme::with_alpha(Color32::WHITE, if selected { 0.15 } else { 0.10 }),
+    );
     painter.rect_stroke(
         rect,
         rounding,
@@ -220,10 +181,13 @@ fn paint_secondary_pill(painter: &egui::Painter, rect: Rect, hovered: bool, sele
     );
 }
 
-fn paint_icon_button(painter: &egui::Painter, rect: Rect, hovered: bool, selected: bool) {
+fn paint_icon_button(painter: &egui::Painter, rect: Rect, selected: bool) {
     let rounding = Rounding::same(rect.height() * 0.5);
-    let fill = theme::with_alpha(Color32::WHITE, if hovered { 0.17 } else { 0.10 });
-    painter.rect_filled(rect, rounding, fill);
+    painter.rect_filled(
+        rect,
+        rounding,
+        theme::with_alpha(Color32::WHITE, if selected { 0.15 } else { 0.10 }),
+    );
     painter.rect_stroke(
         rect,
         rounding,

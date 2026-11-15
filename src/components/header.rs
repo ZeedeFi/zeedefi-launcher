@@ -1,29 +1,17 @@
 //! `src/components/header.rs` — barre supérieure : profil et état du démon.
 //!
-//! Le profil (avatar + nom) est à gauche, conformément à la demande produit ;
-//! l'état de la connexion est regroupé dans une pilule à droite.
+//! Le profil (avatar + nom) est à gauche ; l'état de la connexion est regroupé
+//! dans une pilule à droite. L'en-tête est purement informatif : le menu de
+//! profil s'ouvre avec Start / Tab / P, jamais à la souris.
 
-use egui::{Color32, Id, Pos2, Rect, Rounding, Sense, Stroke, Ui, Vec2};
+use egui::{Color32, Pos2, Rect, Rounding, Sense, Stroke, Ui, Vec2};
 
 use crate::app::{AppState, ConnectionStatus};
 use crate::components::icons;
 use crate::theme;
 
-/// Résultat du rendu de l'en-tête.
-#[derive(Debug, Clone, Copy)]
-pub struct HeaderResponse {
-    pub profile_rect: Rect,
-    pub profile_clicked: bool,
-    pub pill_clicked: bool,
-}
-
-/// Dessine l'en-tête et retourne les zones interactives.
-pub fn draw(
-    ui: &mut Ui,
-    state: &AppState,
-    profile_name: &str,
-    menu_open: bool,
-) -> HeaderResponse {
+/// Dessine l'en-tête et retourne la zone du bloc profil (ancre du menu).
+pub fn draw(ui: &mut Ui, state: &AppState, profile_name: &str, menu_open: bool) -> Rect {
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(
         Vec2::new(width, theme::HEADER_HEIGHT),
@@ -37,13 +25,7 @@ pub fn draw(
         Pos2::new(rect.min.x, rect.min.y),
         Vec2::new(rect.width(), 190.0),
     );
-    theme::vertical_gradient_fade(
-        painter,
-        scrim,
-        Color32::BLACK,
-        0.44,
-        0.0,
-    );
+    theme::vertical_gradient_fade(painter, scrim, Color32::BLACK, 0.44, 0.0);
 
     let palette = theme::Palette::default();
     let center_y = rect.center().y;
@@ -74,15 +56,13 @@ pub fn draw(
         Pos2::new(rect.min.x + theme::CONTENT_MARGIN - 10.0, center_y - 30.0),
         Pos2::new(chevron_point.x + 14.0, center_y + 30.0),
     );
-    let profile_response = ui
-        .interact(profile_rect, Id::new("profile_button"), Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
 
-    if profile_response.hovered() || menu_open {
+    // Fond du bloc uniquement lorsque le menu est ouvert (repère d'ancrage).
+    if menu_open {
         painter.rect_filled(
             profile_rect,
             Rounding::same(14.0),
-            theme::with_alpha(Color32::WHITE, if menu_open { 0.10 } else { 0.06 }),
+            theme::with_alpha(Color32::WHITE, 0.10),
         );
         painter.rect_stroke(
             profile_rect,
@@ -166,25 +146,22 @@ pub fn draw(
     let pill_height = 36.0;
     let pill_width = 16.0 + 8.0 + 9.0 + text_width + 16.0;
     let pill_rect = Rect::from_min_size(
-        Pos2::new(rect.max.x - theme::CONTENT_MARGIN - pill_width, center_y - pill_height * 0.5),
+        Pos2::new(
+            rect.max.x - theme::CONTENT_MARGIN - pill_width,
+            center_y - pill_height * 0.5,
+        ),
         Vec2::new(pill_width, pill_height),
     );
-    let pill_response = ui
-        .interact(pill_rect, Id::new("connection_pill"), Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
     let pill_rounding = Rounding::same(pill_height * 0.5);
     painter.rect_filled(
         pill_rect,
         pill_rounding,
-        theme::with_alpha(Color32::BLACK, if pill_response.hovered() { 0.52 } else { 0.40 }),
+        theme::with_alpha(Color32::BLACK, 0.40),
     );
     painter.rect_stroke(
         pill_rect,
         pill_rounding,
-        Stroke::new(
-            1.0_f32,
-            theme::with_alpha(Color32::WHITE, if pill_response.hovered() { 0.22 } else { 0.12 }),
-        ),
+        Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.12)),
     );
 
     let dot_center = Pos2::new(pill_rect.min.x + 16.0 + 4.0, center_y);
@@ -204,17 +181,5 @@ pub fn draw(
         palette.text_primary,
     );
 
-    if pill_response.on_hover_text("État de la connexion au démon ZeedeFi").clicked() {
-        return HeaderResponse {
-            profile_rect,
-            profile_clicked: profile_response.clicked(),
-            pill_clicked: true,
-        };
-    }
-
-    HeaderResponse {
-        profile_rect,
-        profile_clicked: profile_response.clicked(),
-        pill_clicked: false,
-    }
+    profile_rect
 }

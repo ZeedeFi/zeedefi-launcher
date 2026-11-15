@@ -2,7 +2,8 @@
 //!
 //! Regroupe les actions de session : profils, paramètres, veille, extinction et
 //! fermeture du launcher. Aucun processus local n'est lancé : les actions
-//! système sont déléguées au démon ZeedeFi par `app.rs`.
+//! système sont déléguées au démon ZeedeFi par `app.rs`. Navigation
+//! exclusivement clavier/manette (flèches, A, B).
 
 use egui::{Color32, Id, LayerId, Order, Pos2, Rect, Rounding, Stroke, Vec2};
 
@@ -18,13 +19,6 @@ pub enum ProfileAction {
     Sleep,
     Shutdown,
     Quit,
-}
-
-/// Résultat du rendu du menu.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct MenuOutput {
-    pub action: Option<ProfileAction>,
-    pub close: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,14 +99,10 @@ const HEADER_HEIGHT: f32 = 78.0;
 const ROW_HEIGHT: f32 = 46.0;
 const SEPARATOR_HEIGHT: f32 = 10.0;
 const PANEL_PADDING: f32 = 8.0;
+const FOOTER_HEIGHT: f32 = 34.0;
 
 /// Dessine le menu sous `anchor` (zone du bouton profil).
-pub fn draw(
-    context: &egui::Context,
-    anchor: Rect,
-    profile_name: &str,
-    selected: usize,
-) -> MenuOutput {
+pub fn draw(context: &egui::Context, anchor: Rect, profile_name: &str, selected: usize) {
     let palette = theme::Palette::default();
     let screen = context.screen_rect();
     let width = theme::PROFILE_MENU_WIDTH;
@@ -120,7 +110,8 @@ pub fn draw(
     let height = HEADER_HEIGHT
         + PANEL_PADDING * 2.0
         + ROW_HEIGHT * ITEMS.len() as f32
-        + SEPARATOR_HEIGHT * separator_count as f32;
+        + SEPARATOR_HEIGHT * separator_count as f32
+        + FOOTER_HEIGHT;
 
     let max_x = (screen.max.x - width - 16.0).max(16.0);
     let x = anchor.min.x.clamp(16.0, max_x);
@@ -176,10 +167,6 @@ pub fn draw(
         Stroke::new(1.0_f32, palette.divider),
     );
 
-    let pointer = context.input(|input| input.pointer.hover_pos());
-    let primary_clicked = context.input(|input| input.pointer.primary_clicked());
-    let mut output = MenuOutput::default();
-
     let mut row_y = header_separator_y + PANEL_PADDING;
     for (index, item) in ITEMS.iter().enumerate() {
         if item.separator_before {
@@ -198,29 +185,23 @@ pub fn draw(
             Pos2::new(panel_rect.min.x + 8.0, row_y),
             Vec2::new(width - 16.0, ROW_HEIGHT),
         );
-        let hovered = pointer.map(|pos| row_rect.contains(pos)).unwrap_or(false);
-        if hovered {
-            context.set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        let active = hovered || index == selected;
+        let active = index == selected;
 
         if active {
             let row_rounding = Rounding::same(10.0);
             painter.rect_filled(
                 row_rect,
                 row_rounding,
-                theme::with_alpha(Color32::WHITE, if hovered { 0.11 } else { 0.07 }),
+                theme::with_alpha(Color32::WHITE, 0.10),
             );
-            if index == selected {
-                painter.rect_filled(
-                    Rect::from_min_size(
-                        Pos2::new(row_rect.min.x + 4.0, row_rect.min.y + 9.0),
-                        Vec2::new(3.0, ROW_HEIGHT - 18.0),
-                    ),
-                    Rounding::same(2.0),
-                    theme::ACCENT,
-                );
-            }
+            painter.rect_filled(
+                Rect::from_min_size(
+                    Pos2::new(row_rect.min.x + 4.0, row_rect.min.y + 9.0),
+                    Vec2::new(3.0, ROW_HEIGHT - 18.0),
+                ),
+                Rounding::same(2.0),
+                theme::ACCENT,
+            );
         }
 
         let icon_color = if item.danger {
@@ -234,16 +215,11 @@ pub fn draw(
             Pos2::new(row_rect.min.x + 25.0, row_rect.center().y),
             Vec2::splat(20.0),
         );
-        let row_background = if active {
-            theme::lerp_color(palette.surface_elevated, Color32::WHITE, 0.10)
-        } else {
-            palette.surface_elevated
-        };
         match item.icon {
             Icon::Users => icons::users(&painter, icon_rect, icon_color),
             Icon::Person => icons::person(&painter, icon_rect, icon_color),
             Icon::Sliders => icons::sliders(&painter, icon_rect, icon_color),
-            Icon::Moon => icons::moon(&painter, icon_rect, icon_color, row_background),
+            Icon::Moon => icons::moon(&painter, icon_rect, icon_color, palette.surface_elevated),
             Icon::Power => icons::power(&painter, icon_rect, icon_color),
             Icon::Exit => icons::exit(&painter, icon_rect, icon_color),
         }
@@ -260,22 +236,48 @@ pub fn draw(
             },
         );
 
-        if hovered && primary_clicked {
-            output.action = Some(item.action);
-            output.close = true;
-        }
-
         row_y += ROW_HEIGHT;
     }
 
-    // Clic à l'extérieur : fermeture.
-    if primary_clicked && !output.close {
-        if let Some(pos) = pointer {
-            if !panel_rect.contains(pos) && !anchor.contains(pos) {
-                output.close = true;
-            }
-        }
+    // Pied : rappel des commandes manette/clavier.
+    let footer_y = panel_rect.max.y - FOOTER_HEIGHT * 0.5;
+    painter.line_segment(
+        [
+            Pos2::new(panel_rect.min.x + 14.0, panel_rect.max.y - FOOTER_HEIGHT),
+            Pos2::new(panel_rect.max.x - 14.0, panel_rect.max.y - FOOTER_HEIGHT),
+        ],
+        Stroke::new(1.0_f32, palette.divider),
+    );
+    let mut hint_x = panel_rect.min.x + 18.0;
+    for (key, label) in [("A", "Choisir"), ("B", "Fermer")] {
+        let cap = Rect::from_center_size(
+            Pos2::new(hint_x + 9.0, footer_y),
+            Vec2::new(19.0, 19.0),
+        );
+        painter.rect_filled(
+            cap,
+            Rounding::same(5.0),
+            theme::with_alpha(Color32::WHITE, 0.13),
+        );
+        painter.rect_stroke(
+            cap,
+            Rounding::same(5.0),
+            Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.14)),
+        );
+        painter.text(
+            cap.center(),
+            egui::Align2::CENTER_CENTER,
+            key,
+            theme::bold(9.5),
+            palette.text_primary,
+        );
+        painter.text(
+            Pos2::new(hint_x + 25.0, footer_y),
+            egui::Align2::LEFT_CENTER,
+            label,
+            theme::font(11.0),
+            palette.text_secondary,
+        );
+        hint_x += 25.0 + 58.0;
     }
-
-    output
 }

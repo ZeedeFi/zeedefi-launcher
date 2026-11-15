@@ -33,6 +33,8 @@ pub struct BackgroundRenderer {
     previous: Option<BackgroundLayer>,
     pub fade: f32,
     overlay_alpha: f32,
+    /// Léger travelling avant au changement de fond (effet « push-in »).
+    zoom: f32,
 }
 
 impl BackgroundRenderer {
@@ -42,6 +44,7 @@ impl BackgroundRenderer {
             previous: None,
             fade: 1.0,
             overlay_alpha: theme::OVERLAY_ALPHA,
+            zoom: 0.0,
         }
     }
 
@@ -59,6 +62,7 @@ impl BackgroundRenderer {
         self.previous = self.current.take();
         self.current = Some(BackgroundLayer { handle, path });
         self.fade = 0.0;
+        self.zoom = 0.045;
     }
 
     /// Efface le fond courant (utilisé en mode hors-ligne sans illustration).
@@ -73,7 +77,12 @@ impl BackgroundRenderer {
     /// Avance l'animation du fondu.
     pub fn update_animation(&mut self, delta_seconds: f32) {
         if self.fade < 1.0 {
-            self.fade = (self.fade + delta_seconds * 4.0).min(1.0);
+            self.fade = (self.fade + delta_seconds * 3.0).min(1.0);
+        }
+        // Le travelling se stabilise en douceur, indépendamment du framerate.
+        self.zoom *= (-delta_seconds * 3.5).exp();
+        if self.zoom < 0.0005 {
+            self.zoom = 0.0;
         }
     }
 
@@ -90,20 +99,18 @@ impl BackgroundRenderer {
             painter.rect_filled(viewport, egui::Rounding::ZERO, palette.background);
         }
 
+        let fade = smoothstep(self.fade);
+        let zoom = 1.0 + self.zoom;
+
         // Couche précédente (sortante).
         if let Some(previous) = &self.previous {
-            let alpha = 1.0 - self.fade;
-            draw_layer(&painter, previous, viewport, alpha);
+            draw_layer(&painter, previous, viewport, 1.0 - fade, zoom);
         }
 
         // Couche courante (entrante).
         if let Some(current) = &self.current {
-            let alpha = if self.previous.is_some() {
-                self.fade
-            } else {
-                1.0
-            };
-            draw_layer(&painter, current, viewport, alpha);
+            let alpha = if self.previous.is_some() { fade } else { 1.0 };
+            draw_layer(&painter, current, viewport, alpha, zoom);
         }
 
         // Halo ambiant lorsque aucun artwork n'est disponible (mode démo).
@@ -120,6 +127,9 @@ impl BackgroundRenderer {
             egui::Rounding::ZERO,
             theme::with_alpha(Color32::BLACK, self.overlay_alpha),
         );
+
+        // Vignettage doux : concentre le regard vers le centre de l'écran.
+        paint_vignette(&painter, viewport, 0.14);
 
         // Voile supérieur : lisibilité du profil et de la pilule d'état.
         let top_height = 190.0_f32.min(viewport.height());
@@ -157,7 +167,13 @@ impl BackgroundRenderer {
     }
 }
 
-fn draw_layer(painter: &Painter, layer: &BackgroundLayer, viewport: Rect, alpha: f32) {
+fn draw_layer(
+    painter: &Painter,
+    layer: &BackgroundLayer,
+    viewport: Rect,
+    alpha: f32,
+    zoom: f32,
+) {
     if alpha <= 0.0 {
         return;
     }
@@ -166,7 +182,8 @@ fn draw_layer(painter: &Painter, layer: &BackgroundLayer, viewport: Rect, alpha:
         return;
     }
     let scale = (viewport.width() / size[0] as f32)
-        .max(viewport.height() / size[1] as f32);
+        .max(viewport.height() / size[1] as f32)
+        * zoom;
     let width = size[0] as f32 * scale;
     let height = size[1] as f32 * scale;
     let rect = Rect::from_center_size(viewport.center(), Vec2::new(width, height));
@@ -177,6 +194,31 @@ fn draw_layer(painter: &Painter, layer: &BackgroundLayer, viewport: Rect, alpha:
         Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
         tint,
     );
+}
+
+fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn paint_vignette(painter: &Painter, viewport: Rect, strength: f32) {
+    let center = viewport.center();
+    let radius = (viewport.width().powi(2) + viewport.height().powi(2)).sqrt() * 0.5;
+    let mut mesh = egui::Mesh::default();
+    const SEGMENTS: usize = 64;
+    mesh.colored_vertex(center, Color32::TRANSPARENT);
+    for segment in 0..SEGMENTS {
+        let angle = segment as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+        let offset = Vec2::angled(angle) * radius;
+        mesh.colored_vertex(
+            center + offset,
+            theme::with_alpha(Color32::BLACK, strength),
+        );
+    }
+    for segment in 0..SEGMENTS as u32 {
+        mesh.add_triangle(0, 1 + segment, 1 + (segment + 1) % SEGMENTS as u32);
+    }
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 fn paint_vertical_gradient(painter: &Painter, rect: Rect, top: Color32, bottom: Color32) {

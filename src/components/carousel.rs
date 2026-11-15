@@ -3,9 +3,10 @@
 //! La tuile sélectionnée est agrandie et ancrée à gauche ; les tuiles suivantes
 //! s'enchaînent horizontalement. Les positions et les échelles sont animées par
 //! `AppState` (interpolation indépendante du framerate), le rendu se contente
-//! de peindre l'état courant.
+//! de peindre l'état courant. Navigation exclusivement clavier/manette : aucune
+//! tuile n'est cliquable, le focus est unique et toujours visible.
 
-use egui::{Id, Rect, Sense, TextureHandle, Ui};
+use egui::{Rect, Sense, TextureHandle, Ui};
 
 use crate::app::AppState;
 use crate::components::game_tile::{self, TileStyle, TileVisual};
@@ -17,16 +18,10 @@ pub struct TileVisuals<'a> {
     pub gradients: &'a [TextureHandle],
 }
 
-/// Dessine la rangée et retourne l'indice de la tuile cliquée, le cas échéant.
-pub fn draw(
-    ui: &mut Ui,
-    area: Rect,
-    state: &AppState,
-    visuals: &TileVisuals<'_>,
-) -> Option<usize> {
+/// Dessine la rangée de tuiles.
+pub fn draw(ui: &mut Ui, area: Rect, state: &AppState, visuals: &TileVisuals<'_>) {
     let _ = ui.allocate_exact_size(area.size(), Sense::hover());
     let row_bottom = area.max.y - theme::ROW_BOTTOM_PADDING;
-    let mut clicked = None;
 
     // Deux passes : les tuiles secondaires d'abord, la tuile focus au-dessus.
     for pass_focused in [false, true] {
@@ -62,22 +57,6 @@ pub fn draw(
                 continue;
             }
 
-            // Interaction : seule la tuile réellement visible est cliquable.
-            let interactive = alpha > 0.35 && rect.min.x < area.max.x - 8.0;
-            let mut hovered = false;
-            if interactive {
-                let response = ui
-                    .interact(rect, Id::new(("carousel_tile", index)), Sense::click())
-                    .on_hover_cursor(egui::CursorIcon::PointingHand);
-                hovered = response.hovered();
-                if response.clicked() {
-                    clicked = Some(index);
-                }
-                if !focused {
-                    response.on_hover_text_at_pointer(entry.title.clone());
-                }
-            }
-
             let cover = visuals.covers.get(index).and_then(|handle| handle.as_ref());
             let gradient = match visuals.gradients.get(index) {
                 Some(texture) => texture,
@@ -92,14 +71,8 @@ pub fn draw(
                     cover,
                     gradient,
                 },
-                TileStyle {
-                    focused,
-                    hovered,
-                    alpha,
-                },
+                TileStyle { focused, alpha },
             );
         }
     }
-
-    clicked
 }

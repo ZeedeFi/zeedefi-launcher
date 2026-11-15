@@ -19,7 +19,6 @@ pub struct TileVisual<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct TileStyle {
     pub focused: bool,
-    pub hovered: bool,
     pub alpha: f32,
 }
 
@@ -114,12 +113,6 @@ pub fn draw(ui: &Ui, rect: Rect, visual: TileVisual<'_>, style: TileStyle) {
             rect.expand(5.0),
             rounding,
             Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, alpha * 0.20)),
-        );
-    } else if style.hovered {
-        painter.rect_stroke(
-            rect,
-            rounding,
-            Stroke::new(1.5_f32, theme::with_alpha(Color32::WHITE, alpha * 0.55)),
         );
     } else {
         painter.rect_stroke(

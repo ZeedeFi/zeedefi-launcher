@@ -130,6 +130,9 @@ pub struct LauncherApp {
     profile_menu_open: bool,
     profile_menu_selected: usize,
     pending_close: bool,
+    /// Curseur système masqué une fois pour toutes : l'interface se pilote
+    /// uniquement au clavier ou à la manette.
+    cursor_hidden: bool,
 }
 
 impl LauncherApp {
@@ -168,6 +171,7 @@ impl LauncherApp {
             profile_menu_open: false,
             profile_menu_selected: 0,
             pending_close: false,
+            cursor_hidden: false,
         };
         app.reset_tile_layout();
         app
@@ -188,20 +192,26 @@ impl LauncherApp {
             }
             return;
         }
+        if self.detail_game.is_some() {
+            // La fiche détail est modale : A ou B la referment.
+            if matches!(action, Action::Back | Action::Confirm) {
+                self.detail_game = None;
+            }
+            return;
+        }
 
         match action {
-            Action::Navigate(Direction::Left) => self.focus_by(-1),
-            Action::Navigate(Direction::Right) => self.focus_by(1),
-            Action::Navigate(Direction::Up) => self.cycle_hero_action(-1),
-            Action::Navigate(Direction::Down) => self.cycle_hero_action(1),
+            Action::Navigate(direction) => match direction {
+                Direction::Left => self.focus_by(-1),
+                Direction::Right => self.focus_by(1),
+                Direction::Up => self.cycle_hero_action(-1),
+                Direction::Down => self.cycle_hero_action(1),
+            },
             Action::Confirm => self.activate_hero_action(self.state.hero_action),
             Action::Back => {
                 self.detail_game = None;
             }
-            Action::Details => {
-                self.detail_game = Some(self.state.focused_game_index);
-                self.profile_menu_open = false;
-            }
+            Action::Details => self.open_details(),
             Action::QuickSettings => self.open_settings(),
             Action::Profile => {
                 self.profile_menu_open = !self.profile_menu_open;
@@ -222,12 +232,12 @@ impl LauncherApp {
     fn handle_profile_menu_input(&mut self, action: &Action) {
         match action {
             Action::Navigate(Direction::Up) => {
-                self.profile_menu_selected = self.profile_menu_selected.saturating_sub(1);
+                let count = profile_menu::item_count();
+                self.profile_menu_selected = (self.profile_menu_selected + count - 1) % count;
             }
             Action::Navigate(Direction::Down) => {
-                if self.profile_menu_selected + 1 < profile_menu::item_count() {
-                    self.profile_menu_selected += 1;
-                }
+                self.profile_menu_selected =
+                    (self.profile_menu_selected + 1) % profile_menu::item_count();
             }
             Action::Confirm => {
                 if let Some(selected) = profile_menu::action_at(self.profile_menu_selected) {
@@ -235,7 +245,7 @@ impl LauncherApp {
                     self.execute_profile_action(selected);
                 }
             }
-            Action::Back => {
+            Action::Back | Action::Profile => {
                 self.profile_menu_open = false;
             }
             _ => {}
@@ -283,6 +293,11 @@ impl LauncherApp {
         });
     }
 
+    fn open_details(&mut self) {
+        self.detail_game = Some(self.state.focused_game_index);
+        self.profile_menu_open = false;
+    }
+
     fn open_settings(&mut self) {
         self.settings.open_now();
         self.profile_menu_open = false;
@@ -310,10 +325,7 @@ impl LauncherApp {
     fn activate_hero_action(&mut self, index: usize) {
         match index {
             0 => self.launch_focused(),
-            1 => {
-                self.detail_game = Some(self.state.focused_game_index);
-                self.profile_menu_open = false;
-            }
+            1 => self.open_details(),
             2 => self.open_settings(),
             _ => {}
         }
@@ -737,12 +749,12 @@ impl LauncherApp {
         );
     }
 
-    fn draw_detail_overlay(&self, context: &Context) -> bool {
+    fn draw_detail_overlay(&self, context: &Context) {
         let Some(index) = self.detail_game else {
-            return false;
+            return;
         };
         let Some(game) = self.state.games_library.get(index) else {
-            return false;
+            return;
         };
         let palette = theme::Palette::default();
         let screen = context.screen_rect();
@@ -756,7 +768,6 @@ impl LauncherApp {
         let width = 640.0_f32.min(screen.width() - 96.0);
         let height = 330.0_f32.min(screen.height() - 140.0);
         let panel = Rect::from_center_size(screen.center(), Vec2::new(width, height));
-        let mut close = false;
 
         egui::Area::new(Id::new("detail_overlay"))
             .fixed_pos(panel.min)
@@ -868,51 +879,18 @@ impl LauncherApp {
                 painter.text(
                     Pos2::new(rect.max.x - 24.0, rect.max.y - 26.0),
                     egui::Align2::RIGHT_CENTER,
-                    "B  Fermer",
+                    "A / B  Fermer",
                     theme::font(11.0),
                     palette.text_muted,
                 );
 
+                // Repère de fermeture : A / B / Échap referment la fiche.
                 let close_rect = Rect::from_min_size(
                     Pos2::new(rect.max.x - 54.0, rect.min.y + 18.0),
                     Vec2::splat(34.0),
                 );
-                let response = ui
-                    .interact(close_rect, Id::new("detail_close"), egui::Sense::click())
-                    .on_hover_cursor(egui::CursorIcon::PointingHand);
-                if response.hovered() {
-                    painter.circle_filled(
-                        close_rect.center(),
-                        17.0,
-                        theme::with_alpha(Color32::WHITE, 0.10),
-                    );
-                }
-                icons::close(
-                    &painter,
-                    close_rect.shrink(9.0),
-                    if response.hovered() {
-                        palette.text_primary
-                    } else {
-                        palette.text_secondary
-                    },
-                );
-                if response.clicked() {
-                    close = true;
-                }
+                icons::close(&painter, close_rect.shrink(9.0), palette.text_secondary);
             });
-
-        if !close {
-            let clicked_outside = context.input(|input| {
-                input.pointer.primary_clicked()
-                    && input
-                        .pointer
-                        .interact_pos()
-                        .map(|pos| !panel.contains(pos))
-                        .unwrap_or(false)
-            });
-            close = clicked_outside;
-        }
-        close
     }
 
     fn draw_hints(&self, context: &Context) {
@@ -985,6 +963,13 @@ impl eframe::App for LauncherApp {
         let screen = context.screen_rect();
         let delta = context.input(|input| input.stable_dt).clamp(0.001, 0.1);
 
+        // L'interface est exclusivement clavier/manette : le pointeur système
+        // est masqué en permanence.
+        if !self.cursor_hidden {
+            context.send_viewport_cmd(egui::ViewportCommand::CursorVisible(false));
+            self.cursor_hidden = true;
+        }
+
         // --- Entrées ---
         for action in self.input.poll(context) {
             self.dispatch(action);
@@ -1040,10 +1025,10 @@ impl eframe::App for LauncherApp {
         };
 
         // --- Interface principale ---
-        let (header_response, hero_response, clicked_tile) = egui::CentralPanel::default()
+        let profile_anchor = egui::CentralPanel::default()
             .frame(egui::Frame::none())
             .show(context, |ui| {
-                let header_response = header::draw(
+                let profile_anchor = header::draw(
                     ui,
                     &self.state,
                     &self.profile_name,
@@ -1058,85 +1043,34 @@ impl eframe::App for LauncherApp {
                             .max(1.0),
                     ),
                 );
-                let hero_response = ui
-                    .allocate_ui_at_rect(hero_area, |ui| {
-                        match self.state.games_library.get(self.state.focused_game_index) {
-                            Some(entry) => {
-                                hero_tile::draw(ui, hero_area, entry, self.state.hero_action)
-                            }
-                            None => hero_tile::HeroResponse::default(),
-                        }
-                    })
-                    .inner;
+                ui.allocate_ui_at_rect(hero_area, |ui| {
+                    if let Some(entry) =
+                        self.state.games_library.get(self.state.focused_game_index)
+                    {
+                        hero_tile::draw(ui, hero_area, entry, self.state.hero_action);
+                    }
+                });
 
                 let carousel_area = Rect::from_min_size(
                     Pos2::new(0.0, screen.height() - theme::CAROUSEL_HEIGHT),
                     Vec2::new(screen.width(), theme::CAROUSEL_HEIGHT),
                 );
-                let clicked_tile = ui
-                    .allocate_ui_at_rect(carousel_area, |ui| {
-                        carousel::draw(ui, carousel_area, &self.state, &visuals)
-                    })
-                    .inner;
+                ui.allocate_ui_at_rect(carousel_area, |ui| {
+                    carousel::draw(ui, carousel_area, &self.state, &visuals);
+                });
 
-                (header_response, hero_response, clicked_tile)
+                profile_anchor
             })
             .inner;
 
-        // --- Réactions à l'en-tête ---
-        if header_response.profile_clicked {
-            self.profile_menu_open = !self.profile_menu_open;
-            self.profile_menu_selected = 0;
-        }
-        if header_response.pill_clicked {
-            let message = match &self.state.connection_status {
-                ConnectionStatus::Connected => "Démon ZeedeFi connecté".to_string(),
-                ConnectionStatus::Connecting => "Connexion au démon en cours…".to_string(),
-                ConnectionStatus::Disconnected => {
-                    "Démon ZeedeFi hors ligne — bibliothèque locale".to_string()
-                }
-                ConnectionStatus::Failed { code } => {
-                    format!("Démon indisponible (erreur #{code})")
-                }
-            };
-            self.toast = Some(Toast::info(message));
-        }
-
-        // --- Réactions au bloc d'information ---
-        if hero_response.play {
-            self.state.hero_action = 0;
-            self.launch_focused();
-        } else if hero_response.details {
-            self.detail_game = Some(self.state.focused_game_index);
-            self.profile_menu_open = false;
-        } else if hero_response.settings {
-            self.open_settings();
-        }
-
-        // --- Réactions au carrousel ---
-        if let Some(index) = clicked_tile {
-            if index == self.state.focused_game_index {
-                self.launch_focused();
-            } else {
-                self.state.focused_game_index = index;
-                self.state.hero_action = 0;
-            }
-        }
-
         // --- Menu de profil ---
         if self.profile_menu_open {
-            let output = profile_menu::draw(
+            profile_menu::draw(
                 context,
-                header_response.profile_rect,
+                profile_anchor,
                 &self.profile_name,
                 self.profile_menu_selected,
             );
-            if output.close {
-                self.profile_menu_open = false;
-            }
-            if let Some(action) = output.action {
-                self.execute_profile_action(action);
-            }
         }
 
         // --- Panneau de paramètres ---
@@ -1145,9 +1079,7 @@ impl eframe::App for LauncherApp {
         }
 
         // --- Surcouche détails ---
-        if self.draw_detail_overlay(context) {
-            self.detail_game = None;
-        }
+        self.draw_detail_overlay(context);
 
         // --- Toast, indices, FPS ---
         self.update_toast();
