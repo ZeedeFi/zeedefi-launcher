@@ -1,0 +1,16 @@
+[Unit]
+Description=ZeedeFi battery guard — sauvegarde GitHub puis extinction à 8 %
+Documentation=file:///home/zdfi/Documents/Projet%20par%20d%C3%A9faut/zeedefi-launcher/scripts/battery-guard.sh
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/zeedefi-battery-guard --watch
+Restart=always
+RestartSec=10
+Environment=ZEEDEFI_BATTERY_THRESHOLD=8
+Environment=ZEEDEFI_BATTERY_PRETHOLD=12
+Environment=ZEEDEFI_BATTERY_INTERVAL=20
+
+[Install]
+WantedBy=default.target

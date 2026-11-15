@@ -11,7 +11,13 @@ use crate::components::icons;
 use crate::theme;
 
 /// Dessine l'en-tête et retourne la zone du bloc profil (ancre du menu).
-pub fn draw(ui: &mut Ui, state: &AppState, profile_name: &str, menu_open: bool) -> Rect {
+pub fn draw(
+    ui: &mut Ui,
+    state: &AppState,
+    profile_name: &str,
+    menu_open: bool,
+    battery: Option<(u8, bool)>,
+) -> Rect {
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(
         Vec2::new(width, theme::HEADER_HEIGHT),
@@ -163,6 +169,62 @@ pub fn draw(ui: &mut Ui, state: &AppState, profile_name: &str, menu_open: bool) 
         pill_rounding,
         Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.12)),
     );
+
+    // --- Batterie (à gauche de la pilule d'état) ---
+    if let Some((capacity, plugged)) = battery {
+        let color = if plugged {
+            palette.success
+        } else if capacity <= 12 {
+            palette.danger
+        } else if capacity <= 20 {
+            palette.warning
+        } else {
+            palette.text_secondary
+        };
+        let value = format!("{capacity} %");
+        let value_width = painter
+            .layout_no_wrap(value.clone(), theme::bold(12.0), color)
+            .size()
+            .x;
+        let glyph = Vec2::new(24.0, 12.0);
+        let total = glyph.x + 8.0 + value_width;
+        let x = pill_rect.min.x - 20.0 - total;
+
+        let body = Rect::from_min_size(
+            Pos2::new(x, center_y - glyph.y * 0.5),
+            glyph,
+        );
+        let stroke = theme::with_alpha(color, 0.55);
+        painter.rect_stroke(
+            body,
+            Rounding::same(3.0),
+            Stroke::new(1.0_f32, stroke),
+        );
+        painter.rect_filled(
+            Rect::from_min_size(
+                Pos2::new(body.max.x + 1.5, center_y - 2.5),
+                Vec2::new(2.0, 5.0),
+            ),
+            Rounding::same(1.0),
+            stroke,
+        );
+        let inner = body.shrink(2.5);
+        let fill_width = inner.width() * f32::from(capacity) / 100.0;
+        if fill_width > 0.5 {
+            painter.rect_filled(
+                Rect::from_min_size(inner.min, Vec2::new(fill_width, inner.height())),
+                Rounding::same(1.5),
+                theme::with_alpha(color, 0.9),
+            );
+        }
+        painter.text(
+            Pos2::new(body.max.x + 8.0, center_y),
+            egui::Align2::LEFT_CENTER,
+            value,
+            theme::bold(12.0),
+            color,
+        );
+    }
 
     let dot_center = Pos2::new(pill_rect.min.x + 16.0 + 4.0, center_y);
     if matches!(

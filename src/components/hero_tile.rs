@@ -27,9 +27,17 @@ pub fn draw(ui: &Ui, area: Rect, entry: &GameEntry, hero_action: usize) {
     let title_bottom = subtitle_bottom - 22.0;
     let overline_bottom = title_bottom - 58.0;
 
-    // Surtitre.
+    // Surtitre précédé d'un filet accent.
+    painter.rect_filled(
+        Rect::from_min_size(
+            Pos2::new(x, overline_bottom - 11.0),
+            Vec2::new(3.0, 11.0),
+        ),
+        Rounding::same(1.5),
+        theme::ACCENT,
+    );
     painter.text(
-        Pos2::new(x, overline_bottom),
+        Pos2::new(x + 12.0, overline_bottom),
         egui::Align2::LEFT_BOTTOM,
         "BIBLIOTHÈQUE ZEEDEFI",
         theme::bold(11.0),

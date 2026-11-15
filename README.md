@@ -60,6 +60,34 @@ Navigation : les listes bouclent dans les deux sens, un appui maintenu répète
 le déplacement (400 ms puis toutes les 120 ms), et Gauche/Droite bascule
 directement les interrupteurs du panneau de paramètres.
 
+## Garde-fou batterie
+
+Le service utilisateur `zeedefi-battery-guard` surveille la batterie toutes les
+20 s. À **12 %** il crée une première sauvegarde, à **8 %** il :
+
+1. commite toutes les modifications du dépôt,
+2. crée un bundle local dans `~/zeedefi-backups/`,
+3. pousse `main` sur GitHub (5 tentatives),
+4. éteint la machine via `systemctl poweroff` si le secteur n'a pas été
+   rebranché entre-temps.
+
+Installation :
+
+```bash
+install -m 755 scripts/battery-guard.sh ~/.local/bin/zeedefi-battery-guard
+cp scripts/zeedefi-battery-guard.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now zeedefi-battery-guard.service
+```
+
+Diagnostic :
+
+```bash
+zeedefi-battery-guard --check          # état courant, aucune action
+zeedefi-battery-guard --backup-only    # commit + bundle + push, sans extinction
+tail -f ~/.cache/zeedefi/battery-guard.log
+```
+
 ## Sécurité
 
 - Aucun processus n'est lancé localement à partir des données du démon : la

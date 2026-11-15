@@ -23,6 +23,18 @@ pub fn draw(ui: &mut Ui, area: Rect, state: &AppState, visuals: &TileVisuals<'_>
     let _ = ui.allocate_exact_size(area.size(), Sense::hover());
     let row_bottom = area.max.y - theme::ROW_BOTTOM_PADDING;
 
+    // Sol lumineux très discret sous la rangée : ancre les tuiles dans l'image.
+    let floor = Rect::from_min_max(
+        egui::Pos2::new(area.min.x, row_bottom - 26.0),
+        egui::Pos2::new(area.max.x, row_bottom + 54.0),
+    );
+    theme::vertical_gradient(
+        ui.painter(),
+        floor,
+        theme::with_alpha(theme::ACCENT, 0.0),
+        theme::with_alpha(theme::ACCENT, 0.045),
+    );
+
     // Deux passes : les tuiles secondaires d'abord, la tuile focus au-dessus.
     for pass_focused in [false, true] {
         for (index, entry) in state.games_library.iter().enumerate() {

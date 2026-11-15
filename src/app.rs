@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use egui::{Color32, Context, FontFamily, Id, Pos2, Rect, Rounding, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
@@ -133,6 +133,9 @@ pub struct LauncherApp {
     /// Curseur système masqué une fois pour toutes : l'interface se pilote
     /// uniquement au clavier ou à la manette.
     cursor_hidden: bool,
+    /// État de la batterie : (pourcentage, branché sur secteur).
+    battery: Option<(u8, bool)>,
+    battery_checked: Instant,
 }
 
 impl LauncherApp {
@@ -172,6 +175,8 @@ impl LauncherApp {
             profile_menu_selected: 0,
             pending_close: false,
             cursor_hidden: false,
+            battery: read_battery_state(),
+            battery_checked: Instant::now(),
         };
         app.reset_tile_layout();
         app
@@ -978,6 +983,12 @@ impl eframe::App for LauncherApp {
         // --- Démon ---
         self.poll_client_events();
 
+        // --- Batterie (rafraîchie toutes les 30 s) ---
+        if self.battery_checked.elapsed() >= Duration::from_secs(30) {
+            self.battery = read_battery_state();
+            self.battery_checked = Instant::now();
+        }
+
         // --- Textures ---
         self.loader.poll(context, &mut self.cache);
         self.sync_background();
@@ -1033,6 +1044,7 @@ impl eframe::App for LauncherApp {
                     &self.state,
                     &self.profile_name,
                     self.profile_menu_open,
+                    self.battery,
                 );
 
                 let hero_area = Rect::from_min_size(
@@ -1340,4 +1352,27 @@ fn demo_library() -> Vec<GameEntry> {
             store_icon: None,
         })
         .collect()
+}
+
+/// Lit l'état de la première batterie présente.
+fn read_battery_state() -> Option<(u8, bool)> {
+    let entries = std::fs::read_dir("/sys/class/power_supply").ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("BAT") {
+            continue;
+        }
+        let capacity = std::fs::read_to_string(path.join("capacity"))
+            .ok()?
+            .trim()
+            .parse::<u8>()
+            .ok()?;
+        let status = std::fs::read_to_string(path.join("status")).unwrap_or_default();
+        let plugged = !status.trim().eq_ignore_ascii_case("Discharging");
+        return Some((capacity, plugged));
+    }
+    None
 }

@@ -44,14 +44,14 @@ pub fn draw(ui: &Ui, rect: Rect, visual: TileVisual<'_>, style: TileStyle) {
         if style.focused { 1.0 } else { 0.55 } * alpha,
     );
 
-    // Halo doux autour de la tuile sélectionnée.
+    // Halo doux autour de la tuile sélectionnée : liseré cyan de marque.
     if style.focused {
-        for layer in 1..=4 {
-            let expand = layer as f32 * 3.0;
+        for layer in 1..=5 {
+            let expand = layer as f32 * 3.5;
             painter.rect_filled(
                 rect.expand(expand),
                 rounding,
-                theme::with_alpha(Color32::WHITE, alpha * 0.055 / layer as f32),
+                theme::with_alpha(theme::ACCENT, alpha * 0.070 / layer as f32),
             );
         }
     }
