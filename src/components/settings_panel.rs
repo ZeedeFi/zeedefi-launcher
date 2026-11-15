@@ -13,7 +13,7 @@ use crate::theme;
 const ROW_COUNT: usize = 7;
 const ROW_HEIGHT: f32 = 60.0;
 const SECTION_HEIGHT: f32 = 34.0;
-const CONTENT_TOP: f32 = 106.0;
+const CONTENT_TOP: f32 = 122.0;
 
 /// État du panneau de paramètres.
 #[derive(Debug, Clone)]
@@ -163,7 +163,10 @@ impl SettingsPanel {
         let action = None;
         let area = egui::Area::new(Id::new("settings_panel_area"))
             .fixed_pos(Pos2::new(panel_x, viewport.min.y))
-            .order(egui::Order::Foreground);
+            .order(egui::Order::Foreground)
+            // Le tiroir occupe exactement la hauteur de l'écran : sans cela,
+            // egui le décale vers le haut pour le faire tenir et rogne le titre.
+            .constrain(false);
         area.show(context, |ui| {
             let (rect, _) = ui.allocate_exact_size(
                 Vec2::new(width, viewport.height()),
@@ -188,14 +191,14 @@ impl SettingsPanel {
 
             // --- En-tête ---
             painter.text(
-                Pos2::new(rect.min.x + 28.0, rect.min.y + 34.0),
+                Pos2::new(rect.min.x + 28.0, rect.min.y + 48.0),
                 egui::Align2::LEFT_BOTTOM,
                 "Paramètres",
                 theme::bold(27.0),
                 palette.text_primary,
             );
             painter.text(
-                Pos2::new(rect.min.x + 28.0, rect.min.y + 58.0),
+                Pos2::new(rect.min.x + 28.0, rect.min.y + 72.0),
                 egui::Align2::LEFT_TOP,
                 "Personnalisez votre expérience ZeedeFi",
                 theme::font(13.0),
@@ -204,15 +207,15 @@ impl SettingsPanel {
 
             // Indicateur de fermeture : B / Échap ferment le tiroir.
             let close_rect = Rect::from_center_size(
-                Pos2::new(rect.max.x - 40.0, rect.min.y + 46.0),
+                Pos2::new(rect.max.x - 40.0, rect.min.y + 60.0),
                 Vec2::splat(34.0),
             );
             icons::close(&painter, close_rect.shrink(9.0), palette.text_secondary);
 
             painter.line_segment(
                 [
-                    Pos2::new(rect.min.x + 20.0, rect.min.y + 86.0),
-                    Pos2::new(rect.max.x - 20.0, rect.min.y + 86.0),
+                    Pos2::new(rect.min.x + 20.0, rect.min.y + 100.0),
+                    Pos2::new(rect.max.x - 20.0, rect.min.y + 100.0),
                 ],
                 Stroke::new(1.0_f32, palette.divider),
             );
