@@ -1,0 +1,68 @@
+[package]
+name = "zeedefi-launcher"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.76"
+description = "Big Picture launcher for the ZeedeFi OS daemon"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["gui", "launcher", "egui", "wgpu", "zeedefi"]
+categories = ["gui"]
+publish = false
+
+[dependencies]
+# Rendu : eframe/egui en immediate-mode sur wgpu. Le backend "glow" est
+# volontairement désactivé : le launcher est conçu pour tourner sur wgpu.
+eframe = { version = "0.27", default-features = false, features = [
+    "default_fonts",
+    "wgpu",
+    "wayland",
+    "x11",
+    "persistence",
+] }
+egui = "0.27"
+
+# Manettes : gilrs couvre XInput, DualShock et Switch Pro via SDL/evdev.
+gilrs = "0.10"
+
+# Décodage des visuels (covers, fonds d'écran).
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+] }
+
+# Cache LRU des textures GPU.
+lru = "0.12"
+
+# Protocole Envelope ZeedeFi.
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Runtime async du client démon.
+tokio = { version = "1.35", default-features = false, features = [
+    "fs",
+    "io-util",
+    "net",
+    "macros",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
+
+# Observabilité.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "env-filter",
+    "fmt",
+    "std",
+] }
+
+# Erreurs applicatives.
+thiserror = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
