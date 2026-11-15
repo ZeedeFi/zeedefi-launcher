@@ -104,7 +104,7 @@ impl Default for AppState {
             connection_status: ConnectionStatus::Disconnected,
             hero_action: 0,
             last_error_code: None,
-            show_fps: false,
+            show_fps: std::env::var_os("ZEEDEFI_FPS").is_some(),
             blur_enabled: true,
             offline: false,
         }
@@ -536,7 +536,7 @@ impl LauncherApp {
         if let Some(handle) = self.gradients.get(game_id) {
             return handle.clone();
         }
-        let image = gradient_image(game_id);
+        let image = gradient_image(&format!("{game_id}|tuile"));
         let handle = context.load_texture(
             format!("gradient:{game_id}"),
             image,
@@ -1208,7 +1208,15 @@ fn path_label(path: &Option<PathBuf>, fallback: &str) -> String {
 
 fn gradient_image(game_id: &str) -> egui::ColorImage {
     let palette = theme::fallback_gradient(game_id);
-    let size = 64usize;
+    let size = 256usize;
+    // Graine déterministe : le bruit casse les anneaux de quantification 8 bits
+    // visibles sur les grands dégradés (tuile focus notamment).
+    let mut seed = 0x9E37_79B9u32;
+    for byte in game_id.bytes() {
+        seed = seed
+            .wrapping_mul(1_664_525)
+            .wrapping_add(u32::from(byte) + 1_013_904_223);
+    }
     let mut pixels = Vec::with_capacity(size * size);
     for y in 0..size {
         for x in 0..size {
@@ -1218,12 +1226,23 @@ fn gradient_image(game_id: &str) -> egui::ColorImage {
             let dx = (x as f32 / (size - 1) as f32 - 0.30) / 0.85;
             let dy = (y as f32 / (size - 1) as f32 - 0.22) / 0.70;
             let distance = (dx * dx + dy * dy).sqrt().min(1.0);
-            let highlight = (1.0 - distance).powf(2.2) * 0.26;
+            let highlight = (1.0 - distance).powf(2.2) * 0.24;
             // Vignettage doux en bas.
-            let vignette = (t - 0.55).max(0.0) * 0.22;
+            let vignette = (t - 0.55).max(0.0) * 0.20;
             let color = theme::lerp_color(base, Color32::WHITE, highlight);
             let color = theme::lerp_color(color, Color32::BLACK, vignette);
-            pixels.push(color);
+
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let noise = ((seed >> 8) % 5) as i32 - 2;
+            let channel = |value: u8| (i32::from(value) + noise).clamp(0, 255) as u8;
+            pixels.push(egui::Color32::from_rgba_unmultiplied(
+                channel(color.r()),
+                channel(color.g()),
+                channel(color.b()),
+                color.a(),
+            ));
         }
     }
     egui::ColorImage {

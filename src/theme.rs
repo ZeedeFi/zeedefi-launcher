@@ -211,28 +211,15 @@ pub fn focus_glow(painter: &Painter, rect: Rect, rounding: Rounding) {
     }
 }
 
-/// Remplit un rectangle avec un dégradé vertical (approximation par bandes).
+/// Remplit un rectangle avec un dégradé vertical interpolé par le GPU.
+///
+/// L'usage d'un maillage évite les bandes visibles des dégradés dessinés par
+/// rectangles successifs (32 bandes sur 1080 px restaient perceptibles).
 pub fn vertical_gradient(painter: &Painter, rect: Rect, top: Color32, bottom: Color32) {
-    let steps = 24usize;
-    let height = rect.height();
-    if height <= 0.0 {
-        return;
-    }
-    for step in 0..steps {
-        let t0 = step as f32 / steps as f32;
-        let t1 = (step + 1) as f32 / steps as f32;
-        let mid = (t0 + t1) * 0.5;
-        let y0 = rect.min.y + t0 * height;
-        let y1 = rect.min.y + t1 * height;
-        let band = Rect::from_min_max(
-            Pos2::new(rect.min.x, y0),
-            Pos2::new(rect.max.x, y1 + 1.0),
-        );
-        painter.rect_filled(band, Rounding::ZERO, lerp_color(top, bottom, mid));
-    }
+    vertical_mesh(painter, rect, top, bottom);
 }
 
-/// Dégradé vertical avec fondu d'opacité.
+/// Dégradé vertical avec fondu d'opacité, interpolé par le GPU.
 pub fn vertical_gradient_fade(
     painter: &Painter,
     rect: Rect,
@@ -240,21 +227,27 @@ pub fn vertical_gradient_fade(
     top_alpha: f32,
     bottom_alpha: f32,
 ) {
-    let steps = 20usize;
-    let height = rect.height();
-    if height <= 0.0 {
+    vertical_mesh(
+        painter,
+        rect,
+        with_alpha(color, top_alpha),
+        with_alpha(color, bottom_alpha),
+    );
+}
+
+/// Maillage à deux triangles avec couleurs par sommet.
+pub fn vertical_mesh(painter: &Painter, rect: Rect, top: Color32, bottom: Color32) {
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
         return;
     }
-    for step in 0..steps {
-        let t0 = step as f32 / steps as f32;
-        let t1 = (step + 1) as f32 / steps as f32;
-        let alpha = top_alpha + (bottom_alpha - top_alpha) * ((t0 + t1) * 0.5);
-        let band = Rect::from_min_max(
-            Pos2::new(rect.min.x, rect.min.y + t0 * height),
-            Pos2::new(rect.max.x, rect.min.y + t1 * height + 1.0),
-        );
-        painter.rect_filled(band, Rounding::ZERO, with_alpha(color, alpha));
-    }
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.left_top(), top);
+    mesh.colored_vertex(rect.right_top(), top);
+    mesh.colored_vertex(rect.left_bottom(), bottom);
+    mesh.colored_vertex(rect.right_bottom(), bottom);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 3, 2);
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 /// Dessine un texte tronqué avec une ellipse s'il dépasse `max_width`.

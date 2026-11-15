@@ -180,77 +180,64 @@ fn draw_layer(painter: &Painter, layer: &BackgroundLayer, viewport: Rect, alpha:
 }
 
 fn paint_vertical_gradient(painter: &Painter, rect: Rect, top: Color32, bottom: Color32) {
-    // egui ne fournit pas de helper de dégradé simple dans toutes les versions ;
-    // on approxime par une série de bandes horizontales (coût négligeable).
-    let steps = 32usize;
-    let height = rect.height();
-    if height <= 0.0 {
-        return;
-    }
-    for step in 0..steps {
-        let t0 = step as f32 / steps as f32;
-        let t1 = (step + 1) as f32 / steps as f32;
-        let y0 = rect.min.y + t0 * height;
-        let y1 = rect.min.y + t1 * height;
-        let color = lerp_color(top, bottom, (t0 + t1) * 0.5);
-        let band = Rect::from_min_max(
-            Pos2::new(rect.min.x, y0),
-            Pos2::new(rect.max.x, y1 + 1.0),
-        );
-        painter.rect_filled(band, egui::Rounding::ZERO, color);
-    }
+    theme::vertical_gradient(painter, rect, top, bottom);
 }
 
 fn paint_ambient_glow(painter: &Painter, viewport: Rect, color: Color32) {
     let center = Pos2::new(
-        viewport.min.x + viewport.width() * 0.66,
-        viewport.min.y + viewport.height() * 0.40,
+        viewport.min.x + viewport.width() * 0.64,
+        viewport.min.y + viewport.height() * 0.38,
     );
-    let max_radius = viewport.width() * 0.58;
-    let glow = theme::lerp_color(color, Color32::WHITE, 0.35);
-    let layers = 30;
-    for step in 0..layers {
-        let t = step as f32 / layers as f32;
-        let radius = max_radius * (1.0 - t * 0.92);
-        painter.circle_filled(
-            center,
-            radius,
-            theme::with_alpha(glow, 0.012),
-        );
+    let radius = viewport.width() * 0.55;
+    let glow = theme::lerp_color(color, Color32::WHITE, 0.10);
+
+    // Un seul maillage radial : le halo était auparavant composé de 48 disques
+    // superposés, ce qui saturait le remplissage du GPU (30 FPS sur UHD 600).
+    const SEGMENTS: usize = 64;
+    const RINGS: [f32; 4] = [0.0, 0.45, 0.75, 1.0];
+    const ALPHAS: [f32; 4] = [0.10, 0.065, 0.025, 0.0];
+
+    let mut mesh = egui::Mesh::default();
+    for (ring, &fraction) in RINGS.iter().enumerate() {
+        let alpha = ALPHAS[ring];
+        for segment in 0..SEGMENTS {
+            let angle = segment as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+            let offset = Vec2::angled(angle) * radius * fraction;
+            mesh.colored_vertex(center + offset, theme::with_alpha(glow, alpha));
+        }
     }
+
+    let segments = SEGMENTS as u32;
+    for ring in 0..RINGS.len() - 1 {
+        let base = (ring * SEGMENTS) as u32;
+        let next = base + segments;
+        for segment in 0..segments {
+            let a = base + segment;
+            let b = base + (segment + 1) % segments;
+            let c = next + segment;
+            let d = next + (segment + 1) % segments;
+            mesh.add_triangle(a, c, d);
+            if ring > 0 {
+                mesh.add_triangle(a, d, b);
+            }
+        }
+    }
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 fn draw_horizontal_fade(painter: &Painter, rect: Rect, alpha: f32) {
-    let steps = 24usize;
-    let width = rect.width();
-    if width <= 0.0 {
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
         return;
     }
-    for step in 0..steps {
-        let t0 = step as f32 / steps as f32;
-        let t1 = (step + 1) as f32 / steps as f32;
-        let band = Rect::from_min_max(
-            Pos2::new(rect.min.x + t0 * width, rect.min.y),
-            Pos2::new(rect.min.x + t1 * width + 1.0, rect.max.y),
-        );
-        let a = alpha * (1.0 - (t0 + t1) * 0.5).powi(2);
-        painter.rect_filled(
-            band,
-            egui::Rounding::ZERO,
-            theme::with_alpha(Color32::BLACK, a),
-        );
-    }
-}
-
-fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
-    let t = t.clamp(0.0, 1.0);
-    let channel = |from: u8, to: u8| {
-        (f32::from(from) + (f32::from(to) - f32::from(from)) * t).round() as u8
-    };
-    Color32::from_rgba_unmultiplied(
-        channel(a.r(), b.r()),
-        channel(a.g(), b.g()),
-        channel(a.b(), b.b()),
-        channel(a.a(), b.a()),
-    )
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.left_top(), theme::with_alpha(Color32::BLACK, alpha));
+    mesh.colored_vertex(rect.right_top(), theme::with_alpha(Color32::BLACK, 0.0));
+    mesh.colored_vertex(rect.left_bottom(), theme::with_alpha(Color32::BLACK, alpha));
+    mesh.colored_vertex(
+        rect.right_bottom(),
+        theme::with_alpha(Color32::BLACK, 0.0),
+    );
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 3, 2);
+    painter.add(egui::Shape::mesh(mesh));
 }

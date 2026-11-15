@@ -422,7 +422,7 @@ impl SettingsPanel {
                     if *code == crate::zeedefi_client::ErrorCode::SocketMissing as u32
                         || *code == crate::zeedefi_client::ErrorCode::ConnectionRefused as u32
                     {
-                        ("Démon hors ligne".to_string(), palette.danger)
+                        ("Démon hors ligne".to_string(), palette.text_muted)
                     } else {
                         (format!("Erreur #{code}"), palette.danger)
                     }

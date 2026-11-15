@@ -34,13 +34,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let client = ZeedeFiClient::spawn(runtime.handle().clone(), socket_path);
 
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("ZeedeFi Launcher")
             .with_fullscreen(true)
             .with_app_id("org.zeedefi.launcher"),
         ..eframe::NativeOptions::default()
     };
+    if std::env::var_os("ZEEDEFI_NO_VSYNC").is_some() {
+        options.vsync = false;
+    }
 
     eframe::run_native(
         "zeedefi-launcher",
