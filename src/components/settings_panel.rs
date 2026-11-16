@@ -16,6 +16,11 @@ const ROW_HEIGHT: f32 = 64.0;
 const ROW_GAP: f32 = 6.0;
 const SECTION_HEIGHT: f32 = 38.0;
 const ROW_RADIUS: f32 = 14.0;
+/// Marge laissée autour de la ligne active pour que le halo du sélecteur respire
+/// et reste hors des voiles de défilement.
+const FOCUS_MARGIN: f32 = 60.0;
+/// Espace sous la dernière ligne : permet de la remonter au-dessus du bord.
+const LIST_BOTTOM_PADDING: f32 = 60.0;
 
 /// Comportement d'une ligne.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +199,10 @@ impl SettingsPanel {
     pub fn open_now(&mut self) {
         self.open = true;
         self.confirm = None;
+        // On rouvre toujours la liste sur sa première rubrique : le focus reste
+        // prévisible, même après un passage sur « Éteindre ».
+        self.selected = 0;
+        self.scroll = 0.0;
     }
 
     pub fn close_now(&mut self) {
@@ -205,6 +214,16 @@ impl SettingsPanel {
     /// est alors masqué.
     pub fn is_visible(&self) -> bool {
         self.open || self.anim > 0.0
+    }
+
+    /// Vrai pendant les transitions d'ouverture/fermeture. L'accueil reste peint
+    /// sous le voile pour que l'apparition et la disparition soient continues.
+    pub fn is_fading(&self) -> bool {
+        if self.open {
+            self.anim < 0.999
+        } else {
+            self.anim > 0.0
+        }
     }
 
     /// Vrai tant qu'une transition ou un défilement est en cours (repaint).
@@ -328,11 +347,12 @@ impl SettingsPanel {
             theme::with_alpha(palette.text_primary, e),
         );
 
-        // Liste verticale centrée, défilante.
+        // Liste verticale centrée, défilante. Le bas laisse la place au halo du
+        // sélecteur, qui ne doit jamais être rogné par le bord de l'écran.
         let list_top = (overline_y + 96.0).min(viewport.max.y - 160.0);
         let view = Rect::from_min_max(
             Pos2::new(left, list_top),
-            Pos2::new(right, viewport.max.y - 40.0),
+            Pos2::new(right, viewport.max.y - 56.0),
         );
 
         let mut tops = [0.0_f32; ROWS.len()];
@@ -347,25 +367,30 @@ impl SettingsPanel {
             tops[index] = cursor;
             cursor += ROW_HEIGHT + ROW_GAP;
         }
-        let content_height = cursor;
+        // Un peu d'air sous la dernière ligne pour que son halo reste visible.
+        let content_height = cursor + LIST_BOTTOM_PADDING;
 
-        // Défilement : garder la ligne sélectionnée (et sa rubrique) visible.
+        // Défilement : garder la ligne sélectionnée (et sa rubrique) visible,
+        // avec une marge haute/basse égale au halo du sélecteur.
         let selected = self.selected.min(ROWS.len() - 1);
-        let section_space = if ROWS[selected].section.is_some() {
-            SECTION_HEIGHT
+        let has_section = ROWS[selected].section.is_some();
+        let upper_margin = if has_section {
+            // La rubrique reste entièrement lisible au-dessus de la ligne active.
+            SECTION_HEIGHT + FOCUS_MARGIN
         } else {
-            0.0
+            FOCUS_MARGIN
         };
-        let row_top = tops[selected] - section_space;
-        let row_bottom = tops[selected] + ROW_HEIGHT;
+        let row_top = tops[selected];
+        let row_bottom = row_top + ROW_HEIGHT;
         let view_height = view.height();
         let max_scroll = (content_height - view_height).max(0.0);
         let mut wanted = self.scroll;
-        if row_top < wanted {
-            wanted = row_top;
+        // La ligne active (et sa rubrique) ne doit jamais entrer dans les voiles.
+        if row_top - upper_margin < wanted {
+            wanted = row_top - upper_margin;
         }
-        if row_bottom > wanted + view_height {
-            wanted = row_bottom - view_height;
+        if row_bottom + FOCUS_MARGIN > wanted + view_height {
+            wanted = row_bottom + FOCUS_MARGIN - view_height;
         }
         let wanted = wanted.clamp(0.0, max_scroll);
         self.scroll = theme::damp(self.scroll, wanted, delta_seconds, 12.0);
@@ -399,12 +424,58 @@ impl SettingsPanel {
             };
             let confirming = self.confirm == Some(index);
             let value = self.value_text(row.value);
-            paint_row(&list_painter, rect, index, row, value, toggle, confirming, e);
+            paint_row(
+                &list_painter,
+                rect,
+                index,
+                row,
+                value,
+                toggle,
+                confirming,
+                index == selected,
+                e,
+            );
 
             if index == selected {
-                self.focus_rect = Some(rect.intersect(view));
+                // Rectangle complet : le halo est peint sur un calque supérieur,
+                // il ne doit pas être rogné par la zone de défilement.
+                self.focus_rect = Some(rect);
             }
         }
+
+        // Voiles de défilement : les lignes se fondent sous l'en-tête et au-dessus
+        // du bord bas au lieu d'être coupées net.
+        if self.scroll > 0.5 {
+            let fade = Rect::from_min_max(
+                view.min,
+                Pos2::new(view.max.x, view.min.y + 40.0),
+            );
+            theme::vertical_gradient_fade(
+                &painter,
+                fade,
+                palette.background,
+                e,
+                0.0,
+            );
+        }
+        if self.scroll < max_scroll - 0.5 {
+            let fade = Rect::from_min_max(
+                Pos2::new(view.min.x, view.max.y - 44.0),
+                view.max,
+            );
+            theme::vertical_gradient_fade(
+                &painter,
+                fade,
+                palette.background,
+                0.0,
+                e,
+            );
+        }
+
+        // Rappel des commandes, sous la liste.
+        let hint_y = viewport.max.y - 20.0;
+        let hint_right = paint_hint(&painter, right, hint_y, "B", "Retour", e);
+        paint_hint(&painter, hint_right, hint_y, "A", "Choisir", e);
 
         None
     }
@@ -431,6 +502,57 @@ impl Default for SettingsPanel {
     }
 }
 
+/// Une pastille de touche suivie de son libellé, alignée à droite.
+fn paint_hint(
+    painter: &egui::Painter,
+    right: f32,
+    y: f32,
+    key: &str,
+    label: &str,
+    e: f32,
+) -> f32 {
+    let palette = theme::Palette::default();
+    let label_width = painter
+        .layout_no_wrap(label.to_string(), theme::font(12.0), palette.text_secondary)
+        .size()
+        .x;
+    let key_width = painter
+        .layout_no_wrap(key.to_string(), theme::bold(10.5), palette.text_primary)
+        .size()
+        .x;
+    let cap_width = (key_width + 14.0).max(20.0);
+
+    painter.text(
+        Pos2::new(right, y),
+        egui::Align2::RIGHT_CENTER,
+        label,
+        theme::font(12.0),
+        theme::with_alpha(palette.text_secondary, e),
+    );
+    let cap = Rect::from_center_size(
+        Pos2::new(right - label_width - 10.0 - cap_width * 0.5, y),
+        Vec2::new(cap_width, 20.0),
+    );
+    painter.rect_filled(
+        cap,
+        Rounding::same(10.0),
+        theme::with_alpha(Color32::WHITE, 0.12 * e),
+    );
+    painter.rect_stroke(
+        cap,
+        Rounding::same(10.0),
+        Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.20 * e)),
+    );
+    painter.text(
+        cap.center(),
+        egui::Align2::CENTER_CENTER,
+        key,
+        theme::bold(10.5),
+        theme::with_alpha(palette.text_primary, e),
+    );
+    cap.min.x - 22.0
+}
+
 /// Dessine une ligne : titre, sous-titre, puis interrupteur ou valeur à droite.
 #[allow(clippy::too_many_arguments)]
 fn paint_row(
@@ -441,16 +563,39 @@ fn paint_row(
     value: Option<String>,
     toggle: Option<bool>,
     confirming: bool,
+    selected: bool,
     e: f32,
 ) {
     let palette = theme::Palette::default();
     let rounding = Rounding::same(ROW_RADIUS);
-    painter.rect_filled(rect, rounding, theme::with_alpha(Color32::WHITE, 0.05 * e));
+
+    // Cartes opaques : sur un écran de réglages, un fond sombre stable reste
+    // lisible sur n'importe quel artwork, contrairement aux voiles translucides.
+    let fill = if selected {
+        Color32::from_rgb(0x1D, 0x25, 0x33)
+    } else {
+        Color32::from_rgb(0x15, 0x1A, 0x24)
+    };
+    painter.rect_filled(rect, rounding, theme::with_alpha(fill, e));
     painter.rect_stroke(
         rect,
         rounding,
-        Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.06 * e)),
+        Stroke::new(
+            1.0_f32,
+            theme::with_alpha(Color32::WHITE, if selected { 0.12 } else { 0.07 } * e),
+        ),
     );
+
+    if selected {
+        painter.rect_filled(
+            Rect::from_min_size(
+                Pos2::new(rect.min.x + 10.0, rect.center().y - 18.0),
+                Vec2::new(3.0, 36.0),
+            ),
+            Rounding::same(1.5),
+            theme::with_alpha(theme::ACCENT, e),
+        );
+    }
 
     let title_color = if row.danger {
         palette.danger
@@ -468,7 +613,7 @@ fn paint_row(
     let (subtitle, subtitle_color) = if confirming {
         ("Appuyez à nouveau sur A pour confirmer", palette.danger)
     } else {
-        (row.subtitle, palette.text_muted)
+        (row.subtitle, theme::lerp_color(palette.text_muted, palette.text_secondary, 0.55))
     };
     painter.text(
         Pos2::new(rect.min.x + 28.0, rect.center().y + 12.0),

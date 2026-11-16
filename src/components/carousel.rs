@@ -140,6 +140,7 @@ fn paint_footer(ui: &Ui, area: Rect, row_bottom: f32, state: &AppState) {
         ("Start", "Profil"),
         ("Y", "Paramètres"),
         ("X", "Détails"),
+        ("B", "Retour"),
         ("A", "Lancer"),
     ] {
         right = paint_hint(painter, right, center_y, key, label);
@@ -151,11 +152,11 @@ fn paint_footer(ui: &Ui, area: Rect, row_bottom: f32, state: &AppState) {
 fn paint_hint(painter: &Painter, right: f32, center_y: f32, key: &str, label: &str) -> f32 {
     let palette = theme::Palette::default();
     let label_width = painter
-        .layout_no_wrap(label.to_string(), theme::font(12.0), palette.text_muted)
+        .layout_no_wrap(label.to_string(), theme::font(12.0), palette.text_secondary)
         .size()
         .x;
     let key_width = painter
-        .layout_no_wrap(key.to_string(), theme::bold(10.5), palette.text_secondary)
+        .layout_no_wrap(key.to_string(), theme::bold(10.5), palette.text_primary)
         .size()
         .x;
     let cap_width = (key_width + 14.0).max(20.0);
@@ -165,24 +166,24 @@ fn paint_hint(painter: &Painter, right: f32, center_y: f32, key: &str, label: &s
         Align2::RIGHT_CENTER,
         label,
         theme::font(12.0),
-        palette.text_muted,
+        palette.text_secondary,
     );
     let cap = Rect::from_center_size(
         Pos2::new(right - label_width - 10.0 - cap_width * 0.5, center_y),
         Vec2::new(cap_width, 20.0),
     );
-    painter.rect_filled(cap, Rounding::same(10.0), theme::with_alpha(Color32::WHITE, 0.10));
+    painter.rect_filled(cap, Rounding::same(10.0), theme::with_alpha(Color32::WHITE, 0.12));
     painter.rect_stroke(
         cap,
         Rounding::same(10.0),
-        Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.16)),
+        Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.20)),
     );
     painter.text(
         cap.center(),
         Align2::CENTER_CENTER,
         key,
         theme::bold(10.5),
-        palette.text_secondary,
+        palette.text_primary,
     );
-    cap.min.x - 26.0
+    cap.min.x - 22.0
 }

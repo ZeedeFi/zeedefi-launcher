@@ -52,6 +52,8 @@ défilement rapide (plus il est incliné, plus c'est rapide), gâchettes = page 
 
 Clavier : flèches = navigation, Entrée/Espace = valider, Échap = retour,
 X = détails, Y/S = paramètres, Tab/P = menu de profil, PageUp/PageDown = pages.
+Haut/Bas change de rangée (profil → actions → tuiles) ; Gauche/Droite parcourt
+la rangée active. Le sélecteur unique suit toujours la rangée en cours.
 
 Souris : aucune. L'interface est pilotée exclusivement au clavier ou à la
 manette ; le pointeur système est masqué en permanence et aucun élément n'est

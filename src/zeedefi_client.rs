@@ -251,9 +251,9 @@ async fn run_session(
     let mut queue: VecDeque<Request> = VecDeque::new();
 
     loop {
-        if pending.is_some() {
-            // Délai maximal pour la réponse en cours.
-            let deadline = pending.as_ref().map(|p| p.2 + REQUEST_TIMEOUT).unwrap();
+        // Une réponse est attendue : on arme un délai maximal pour celle-ci.
+        if let Some(started) = pending.as_ref().map(|request| request.2) {
+            let deadline = started + REQUEST_TIMEOUT;
             tokio::select! {
                 biased;
                 _ = shutdown.notified() => return Ok(()),

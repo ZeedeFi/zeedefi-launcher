@@ -16,7 +16,7 @@
 
 set -uo pipefail
 
-REPO="${ZEEDEFI_REPO:-$HOME/Documents/Projet par défaut/zeedefi-launcher}"
+REPO="${ZEEDEFI_REPO:-$HOME/Documents/Projet par défaut/zeedefi-launhcer}"
 CACHE_DIR="$HOME/.cache/zeedefi"
 LOG="$CACHE_DIR/battery-guard.log"
 BACKUP_DIR="$HOME/zeedefi-backups"

@@ -952,8 +952,8 @@ impl LauncherApp {
         ));
         backdrop.rect_filled(screen, Rounding::ZERO, theme::with_alpha(Color32::BLACK, 0.62 * t));
 
-        let width = 640.0_f32.min(screen.width() - 96.0);
-        let height = 330.0_f32.min(screen.height() - 140.0);
+        let width = 760.0_f32.min(screen.width() - 96.0);
+        let height = 400.0_f32.min(screen.height() - 140.0);
         // Zoom d'entrée : la vue grandit de 94 % à 100 % pendant le fondu.
         let scale = 0.94 + 0.06 * t;
         let panel = Rect::from_center_size(screen.center(), Vec2::new(width, height) * scale);
@@ -982,10 +982,10 @@ impl LauncherApp {
 
                 // Vignette.
                 let thumb = Rect::from_min_size(
-                    Pos2::new(rect.min.x + 24.0, rect.min.y + 24.0),
-                    Vec2::splat(140.0),
+                    Pos2::new(rect.min.x + 28.0, rect.min.y + 28.0),
+                    Vec2::splat(180.0),
                 );
-                painter.rect_filled(thumb, Rounding::same(16.0), palette.surface);
+                painter.rect_filled(thumb, Rounding::same(18.0), palette.surface);
                 let cover = self.cover_handle(index);
                 let (texture_id, thumb_uv) = match cover.as_ref() {
                     Some(handle) => (Some(handle.id()), theme::cover_uv(handle.size())),
@@ -997,7 +997,7 @@ impl LauncherApp {
                 if let Some(texture_id) = texture_id {
                     egui::Image::new(egui::load::SizedTexture::new(texture_id, thumb.size()))
                         .uv(thumb_uv)
-                        .rounding(Rounding::same(16.0))
+                        .rounding(Rounding::same(18.0))
                         .paint_at(ui, thumb);
                 }
                 if cover.is_none() {
@@ -1005,41 +1005,41 @@ impl LauncherApp {
                         thumb.center(),
                         egui::Align2::CENTER_CENTER,
                         theme::initials(&game.title),
-                        theme::bold(44.0),
+                        theme::bold(54.0),
                         Color32::WHITE,
                     );
                 }
                 painter.rect_stroke(
                     thumb,
-                    Rounding::same(16.0),
+                    Rounding::same(18.0),
                     Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.12)),
                 );
 
                 // Texte.
-                let text_x = thumb.max.x + 24.0;
-                let text_width = (rect.max.x - 24.0 - text_x).max(120.0);
+                let text_x = thumb.max.x + 28.0;
+                let text_width = (rect.max.x - 28.0 - text_x).max(120.0);
                 // Le titre s'arrête avant le repère de fermeture (coin haut droit).
-                let title_width = (text_width - 44.0).max(80.0);
+                let title_width = (text_width - 48.0).max(80.0);
                 theme::ellipsis_text(
                     &painter,
-                    Pos2::new(text_x, rect.min.y + 58.0),
+                    Pos2::new(text_x, rect.min.y + 66.0),
                     egui::Align2::LEFT_BOTTOM,
                     &game.title,
-                    theme::bold(26.0),
+                    theme::bold(30.0),
                     palette.text_primary,
                     title_width,
                 );
                 painter.text(
-                    Pos2::new(text_x, rect.min.y + 70.0),
+                    Pos2::new(text_x, rect.min.y + 80.0),
                     egui::Align2::LEFT_TOP,
                     "Jeu installé  ·  ZeedeFi OS",
-                    theme::font(12.5),
+                    theme::font(14.0),
                     palette.text_secondary,
                 );
                 painter.line_segment(
                     [
-                        Pos2::new(text_x, rect.min.y + 100.0),
-                        Pos2::new(rect.max.x - 24.0, rect.min.y + 100.0),
+                        Pos2::new(text_x, rect.min.y + 118.0),
+                        Pos2::new(rect.max.x - 28.0, rect.min.y + 118.0),
                     ],
                     Stroke::new(1.0_f32, palette.divider),
                 );
@@ -1051,48 +1051,48 @@ impl LauncherApp {
                     ("COUVERTURE", cover_label),
                     ("FOND D'ÉCRAN", bg_label),
                 ];
-                let mut y = rect.min.y + 116.0;
+                let mut y = rect.min.y + 150.0;
                 for (label, value) in &rows {
                     painter.text(
                         Pos2::new(text_x, y),
                         egui::Align2::LEFT_TOP,
                         *label,
-                        theme::bold(9.5),
+                        theme::bold(11.0),
                         theme::with_alpha(palette.text_muted, 0.95),
                     );
                     theme::ellipsis_text(
                         &painter,
-                        Pos2::new(text_x, y + 16.0),
+                        Pos2::new(text_x, y + 20.0),
                         egui::Align2::LEFT_TOP,
                         value,
-                        theme::font(12.0),
+                        theme::font(14.5),
                         palette.text_secondary,
                         text_width,
                     );
-                    y += 40.0;
+                    y += 56.0;
                 }
 
                 painter.text(
-                    Pos2::new(rect.min.x + 24.0, rect.max.y - 26.0),
+                    Pos2::new(rect.min.x + 28.0, rect.max.y - 30.0),
                     egui::Align2::LEFT_CENTER,
                     "Le lancement est délégué au démon ZeedeFi — aucune exécution locale.",
-                    theme::font(11.0),
+                    theme::font(12.5),
                     palette.text_muted,
                 );
                 painter.text(
-                    Pos2::new(rect.max.x - 24.0, rect.max.y - 26.0),
+                    Pos2::new(rect.max.x - 28.0, rect.max.y - 30.0),
                     egui::Align2::RIGHT_CENTER,
                     "A / B  Fermer",
-                    theme::font(11.0),
-                    palette.text_muted,
+                    theme::font(12.5),
+                    palette.text_secondary,
                 );
 
                 // Repère de fermeture : A / B / Échap referment la fiche.
                 let close_rect = Rect::from_min_size(
-                    Pos2::new(rect.max.x - 54.0, rect.min.y + 18.0),
-                    Vec2::splat(34.0),
+                    Pos2::new(rect.max.x - 58.0, rect.min.y + 20.0),
+                    Vec2::splat(38.0),
                 );
-                icons::close(&painter, close_rect.shrink(9.0), palette.text_secondary);
+                icons::close(&painter, close_rect.shrink(10.0), palette.text_secondary);
             });
     }
 
@@ -1173,8 +1173,9 @@ impl eframe::App for LauncherApp {
         };
 
         // --- Interface principale ---
-        // Les paramètres occupent tout l'écran : l'accueil est alors masqué.
-        let main_visible = !self.settings.is_visible();
+        // Les paramètres occupent tout l'écran : l'accueil est alors masqué, sauf
+        // pendant les fondus d'ouverture/fermeture pour éviter tout saut visuel.
+        let main_visible = !self.settings.open || self.settings.is_fading();
         let mut pill_rects: Option<[Rect; 3]> = None;
         let mut tile_rect: Option<Rect> = None;
         let profile_anchor = egui::CentralPanel::default()
@@ -1355,26 +1356,30 @@ fn draw_focus_ring(context: &Context, rect: Rect, alpha: f32) {
         egui::Order::Tooltip,
         Id::new("focus_ring"),
     ));
-    let outline = rect.expand(6.0);
-    // Les tuiles ont des coins de 20 px ; les boutons et lignes sont en pilule.
+    let outline = rect.expand(5.0);
+    // Le rayon du sélecteur reprend celui de la cible : coins de tuile pour les
+    // grands rectangles, pilule pour les boutons, rayon de carte pour les lignes.
     let base_radius = if rect.height() >= 120.0 {
         theme::focus_radius().nw
+    } else if rect.height() <= 44.0 {
+        rect.height() * 0.5
     } else {
-        (rect.height() * 0.5).min(22.0)
+        16.0
     };
-    let radius = base_radius + 6.0;
-    for layer in 1..=4 {
-        let grow = layer as f32 * 3.0;
+    let radius = base_radius + 5.0;
+    // Deux halos très doux : un liseré net suffit à porter le focus, les anciens
+    // quatre contours empêchaient de lire les lignes voisines.
+    for (grow, strength) in [(4.0_f32, 0.30_f32), (8.0, 0.12)] {
         painter.rect_stroke(
             outline.expand(grow),
             Rounding::same(radius + grow),
-            Stroke::new(2.0_f32, theme::with_alpha(theme::ACCENT, alpha * 0.22 / layer as f32)),
+            Stroke::new(1.5_f32, theme::with_alpha(theme::ACCENT, alpha * strength)),
         );
     }
     painter.rect_stroke(
         outline,
         Rounding::same(radius),
-        Stroke::new(3.0_f32, theme::with_alpha(theme::ACCENT, alpha)),
+        Stroke::new(2.5_f32, theme::with_alpha(theme::ACCENT, alpha)),
     );
 }
 
