@@ -27,6 +27,16 @@ pub const SCROLL_LERP: f32 = 0.16;
 pub const SCALE_LERP: f32 = 0.20;
 /// Lerp des fondus.
 pub const FADE_LERP: f32 = 0.14;
+/// Raideur du ressort d'échelle des tuiles (rebond léger à l'arrivée sur la focus).
+pub const SPRING_STIFFNESS: f32 = 220.0;
+/// Amortissement du ressort : ζ ≈ 0,74, léger dépassement puis arrêt net.
+pub const SPRING_DAMPING: f32 = 22.0;
+/// Vitesse d'apparition du bloc héros (progression par seconde).
+pub const HERO_ENTER_SPEED: f32 = 4.5;
+/// Durée du reflet de sélection de la tuile focus (secondes).
+pub const SHINE_DURATION: f32 = 1.1;
+/// Vitesse de l'écran d'ouverture (progression par seconde).
+pub const INTRO_SPEED: f32 = 0.9;
 
 /// Hauteur de l'en-tête.
 pub const HEADER_HEIGHT: f32 = 96.0;
@@ -93,12 +103,35 @@ pub fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let channel = |from: u8, to: u8| {
         (f32::from(from) + (f32::from(to) - f32::from(from)) * t).round() as u8
     };
-    Color32::from_rgba_unmultiplied(
+    // Les composantes d'un `Color32` sont prémultipliées : on interpole donc
+    // dans le même espace, sinon une couleur translucide (piste d'interrupteur,
+    // par exemple) sort beaucoup trop sombre.
+    Color32::from_rgba_premultiplied(
         channel(a.r(), b.r()),
         channel(a.g(), b.g()),
         channel(a.b(), b.b()),
         channel(a.a(), b.a()),
     )
+}
+
+/// Rectangle UV qui recadre au centre une texture pour remplir un cadre carré
+/// sans la déformer (équivalent du `object-fit: cover` du web).
+pub fn cover_uv(texture_size: [usize; 2]) -> Rect {
+    let width = texture_size[0] as f32;
+    let height = texture_size[1] as f32;
+    let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+    if width <= 0.0 || height <= 0.0 {
+        return full;
+    }
+    if width > height {
+        let inset = (1.0 - height / width) * 0.5;
+        Rect::from_min_max(Pos2::new(inset, 0.0), Pos2::new(1.0 - inset, 1.0))
+    } else if height > width {
+        let inset = (1.0 - width / height) * 0.5;
+        Rect::from_min_max(Pos2::new(0.0, inset), Pos2::new(1.0, 1.0 - inset))
+    } else {
+        full
+    }
 }
 
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -262,22 +295,29 @@ pub fn ellipsis_text(
     color: Color32,
     max_width: f32,
 ) {
-    let galley = painter.layout_no_wrap(text.to_string(), font.clone(), color);
-    let galley = if galley.size().x <= max_width {
-        galley
+    // Une seule mise en page dans le cas courant ; si le texte déborde, on
+    // cherche la plus longue troncature possible par dichotomie (O(log n)
+    // mises en page au lieu d'une par caractère, à chaque image).
+    let full = painter.layout_no_wrap(text.to_string(), font.clone(), color);
+    let galley = if full.size().x <= max_width {
+        full
     } else {
-        let mut truncated = String::new();
-        for ch in text.chars() {
-            let candidate = format!("{truncated}{ch}…");
+        let chars: Vec<char> = text.chars().collect();
+        let (mut low, mut high) = (0usize, chars.len());
+        while low < high {
+            let mid = (low + high).div_ceil(2);
+            let candidate: String = chars[..mid].iter().collect::<String>() + "…";
             let width = painter
-                .layout_no_wrap(candidate.clone(), font.clone(), color)
+                .layout_no_wrap(candidate, font.clone(), color)
                 .size()
                 .x;
-            if width > max_width {
-                break;
+            if width <= max_width {
+                low = mid;
+            } else {
+                high = mid - 1;
             }
-            truncated.push(ch);
         }
+        let truncated: String = chars[..low].iter().collect();
         painter.layout_no_wrap(format!("{truncated}…"), font, color)
     };
     let aligned = anchor.align_size_within_rect(
@@ -285,6 +325,23 @@ pub fn ellipsis_text(
         Rect::from_min_size(pos, Vec2::ZERO),
     );
     painter.galley(aligned.min, galley, color);
+}
+
+/// Rapproche `current` de `target` avec un lissage exponentiel indépendant
+/// du framerate. `rate` est en 1/seconde : plus il est grand, plus c'est rapide.
+pub fn damp(current: f32, target: f32, delta_seconds: f32, rate: f32) -> f32 {
+    current + (target - current) * (1.0 - (-delta_seconds * rate).exp())
+}
+
+/// Courbe décroissante : rapide au départ, douce à l'arrivée.
+pub fn ease_out_cubic(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
+/// Interpolation linéaire entre deux rectangles (coins compris).
+pub fn lerp_rect(a: Rect, b: Rect, t: f32) -> Rect {
+    Rect::from_min_max(a.min + (b.min - a.min) * t, a.max + (b.max - a.max) * t)
 }
 
 /// Ligne séparatrice discrète.

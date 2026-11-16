@@ -180,6 +180,12 @@ impl InputManager {
         }
     }
 
+    /// Vrai si un thread manette tourne : l'interface doit alors se redessiner
+    /// régulièrement pour lire ses entrées, même au repos.
+    pub fn is_polling(&self) -> bool {
+        self.source.is_some()
+    }
+
     pub fn poll(&mut self, context: &Context) -> Vec<Action> {
         let mut actions = Vec::new();
         self.drain_gamepad_events(&mut actions);
@@ -317,7 +323,8 @@ impl InputManager {
                         Key::ArrowUp => actions.push(Action::Navigate(Direction::Up)),
                         Key::ArrowDown => actions.push(Action::Navigate(Direction::Down)),
                         Key::Enter | Key::Space => actions.push(Action::Confirm),
-                        Key::Escape | Key::Backspace => actions.push(Action::Back),
+                        Key::Backspace => actions.push(Action::Back),
+                        Key::Escape => actions.push(Action::Back),
                         Key::X => actions.push(Action::Details),
                         Key::Y | Key::S => actions.push(Action::QuickSettings),
                         Key::Tab | Key::P => actions.push(Action::Profile),

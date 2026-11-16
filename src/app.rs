@@ -74,6 +74,17 @@ impl Toast {
     }
 }
 
+/// Ligne de navigation qui porte le sélecteur unique.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusRow {
+    /// Profil (bandeau du haut).
+    Profile,
+    /// Actions du bloc héros : Jouer, Détails, réglages.
+    Actions,
+    /// Carrousel des jeux.
+    Tiles,
+}
+
 /// État global du launcher.
 #[derive(Debug)]
 pub struct AppState {
@@ -85,12 +96,18 @@ pub struct AppState {
     pub tile_scales: Vec<f32>,
     /// Opacité animée de chaque tuile.
     pub tile_alpha: Vec<f32>,
+    /// Vitesse du ressort d'échelle de chaque tuile.
+    pub tile_scale_vel: Vec<f32>,
     pub connection_status: ConnectionStatus,
     pub hero_action: usize,
+    /// Ligne qui porte le sélecteur (haut / bas passe d'une ligne à l'autre).
+    pub focus_row: FocusRow,
     pub last_error_code: Option<u32>,
     pub show_fps: bool,
     pub blur_enabled: bool,
     pub offline: bool,
+    /// Progression du reflet de la tuile focus (0 → 1), relancé à chaque changement.
+    pub focus_shine: f32,
 }
 
 impl Default for AppState {
@@ -101,12 +118,15 @@ impl Default for AppState {
             tile_x: Vec::new(),
             tile_scales: Vec::new(),
             tile_alpha: Vec::new(),
+            tile_scale_vel: Vec::new(),
             connection_status: ConnectionStatus::Disconnected,
             hero_action: 0,
+            focus_row: FocusRow::Tiles,
             last_error_code: None,
             show_fps: std::env::var_os("ZEEDEFI_FPS").is_some(),
             blur_enabled: true,
             offline: false,
+            focus_shine: 0.0,
         }
     }
 }
@@ -136,6 +156,26 @@ pub struct LauncherApp {
     /// État de la batterie : (pourcentage, branché sur secteur).
     battery: Option<(u8, bool)>,
     battery_checked: Instant,
+    /// Entrée de la vue (0 → 1) : le voile noir se dissout au lancement.
+    intro: f32,
+    /// Progression d'apparition du héros pour le jeu courant (0 → 1).
+    hero_enter: f32,
+    /// Jeu dont le héros est affiché (détecte les changements de focus).
+    hero_focus: usize,
+    /// Progression d'ouverture de la vue détaillée (0 → 1).
+    detail_anim: f32,
+    /// Jeu affiché par la vue détaillée, conservé pendant la fermeture.
+    detail_shown: Option<usize>,
+    /// Progression d'ouverture du menu de profil (0 → 1).
+    profile_anim: f32,
+    /// Dernier pas de défilement rapide (stick droit), pour cadencer le défilement.
+    last_fast_scroll: Instant,
+    /// Plafond de FPS facultatif (`ZEEDEFI_FPS_LIMIT`) ; `None` = cadence de la dalle.
+    fps_limit: Option<f32>,
+    /// Rectangle animé du sélecteur unique.
+    focus_ring: Option<Rect>,
+    /// Opacité du sélecteur (0 quand une surcouche modale le masque).
+    focus_ring_alpha: f32,
 }
 
 impl LauncherApp {
@@ -177,6 +217,19 @@ impl LauncherApp {
             cursor_hidden: false,
             battery: read_battery_state(),
             battery_checked: Instant::now(),
+            intro: 0.0,
+            hero_enter: 0.0,
+            hero_focus: 0,
+            detail_anim: 0.0,
+            detail_shown: None,
+            profile_anim: 0.0,
+            last_fast_scroll: Instant::now(),
+            fps_limit: std::env::var("ZEEDEFI_FPS_LIMIT")
+                .ok()
+                .and_then(|value| value.trim().parse::<f32>().ok())
+                .filter(|limit| limit.is_finite() && *limit >= 10.0),
+            focus_ring: None,
+            focus_ring_alpha: 0.0,
         };
         app.reset_tile_layout();
         app
@@ -192,6 +245,11 @@ impl LauncherApp {
             return;
         }
         if self.settings.open {
+            // Échap (Profil) ferme aussi les paramètres, comme B.
+            let action = match action {
+                Action::Profile => Action::Back,
+                other => other,
+            };
             if let Some(setting_action) = self.settings.handle_action(&action) {
                 self.apply_setting_action(setting_action);
             }
@@ -199,7 +257,7 @@ impl LauncherApp {
         }
         if self.detail_game.is_some() {
             // La fiche détail est modale : A ou B la referment.
-            if matches!(action, Action::Back | Action::Confirm) {
+            if matches!(action, Action::Back | Action::Confirm | Action::Profile) {
                 self.detail_game = None;
             }
             return;
@@ -207,12 +265,12 @@ impl LauncherApp {
 
         match action {
             Action::Navigate(direction) => match direction {
-                Direction::Left => self.focus_by(-1),
-                Direction::Right => self.focus_by(1),
-                Direction::Up => self.cycle_hero_action(-1),
-                Direction::Down => self.cycle_hero_action(1),
+                Direction::Up => self.move_row(-1),
+                Direction::Down => self.move_row(1),
+                Direction::Left => self.move_within_row(-1),
+                Direction::Right => self.move_within_row(1),
             },
-            Action::Confirm => self.activate_hero_action(self.state.hero_action),
+            Action::Confirm => self.confirm_focus(),
             Action::Back => {
                 self.detail_game = None;
             }
@@ -222,7 +280,18 @@ impl LauncherApp {
                 self.profile_menu_open = !self.profile_menu_open;
                 self.profile_menu_selected = 0;
             }
-            Action::FastScroll(_) => {}
+            Action::FastScroll(value) => {
+                // Stick droit : défilement rapide du carrousel, plus il est
+                // incliné plus les pas sont rapprochés.
+                if self.state.focus_row == FocusRow::Tiles {
+                    let speed = value.abs().clamp(0.1, 1.0);
+                    let interval = Duration::from_millis((260.0 - 170.0 * speed) as u64);
+                    if self.last_fast_scroll.elapsed() >= interval {
+                        self.last_fast_scroll = Instant::now();
+                        self.focus_by(if value > 0.0 { 1 } else { -1 });
+                    }
+                }
+            }
             Action::PageUp => self.focus_by(-(theme::PAGE_STEP as isize)),
             Action::PageDown => self.focus_by(theme::PAGE_STEP as isize),
             Action::GamepadConnected(name) => {
@@ -307,6 +376,38 @@ impl LauncherApp {
         self.settings.open_now();
         self.profile_menu_open = false;
         self.detail_game = None;
+    }
+
+    /// Monte (-1) ou descend (+1) d'une ligne, sans boucler.
+    fn move_row(&mut self, delta: isize) {
+        let rows = [FocusRow::Profile, FocusRow::Actions, FocusRow::Tiles];
+        let current = rows
+            .iter()
+            .position(|row| *row == self.state.focus_row)
+            .unwrap_or(2) as isize;
+        let next = (current + delta).clamp(0, rows.len() as isize - 1) as usize;
+        self.state.focus_row = rows[next];
+    }
+
+    /// Gauche / droite : change de jeu dans le carrousel, ou d'action dans le héros.
+    fn move_within_row(&mut self, delta: isize) {
+        match self.state.focus_row {
+            FocusRow::Tiles => self.focus_by(delta),
+            FocusRow::Actions => self.cycle_hero_action(delta),
+            FocusRow::Profile => {}
+        }
+    }
+
+    /// Valide l'élément sous le sélecteur.
+    fn confirm_focus(&mut self) {
+        match self.state.focus_row {
+            FocusRow::Profile => {
+                self.profile_menu_open = true;
+                self.profile_menu_selected = 0;
+            }
+            FocusRow::Actions => self.activate_hero_action(self.state.hero_action),
+            FocusRow::Tiles => self.launch_focused(),
+        }
     }
 
     fn focus_by(&mut self, delta: isize) {
@@ -395,12 +496,17 @@ impl LauncherApp {
 
     fn handle_response(&mut self, method: &str, response: Response) {
         if !response.success {
+            // Le démon répond : la liaison est vivante, seule la demande est
+            // refusée. On l'indique sans basculer l'en-tête en « Erreur ».
             self.state.last_error_code = Some(response.code);
-            self.state.connection_status = ConnectionStatus::Failed {
-                code: response.code,
-            };
+            self.toast = Some(Toast::warn(format!(
+                "Le démon a refusé « {method} » (code {})",
+                response.code
+            )));
             return;
         }
+        // Une réponse valide prouve que la connexion est établie.
+        self.state.connection_status = ConnectionStatus::Connected;
         match method {
             "list_games" => {
                 let games: Vec<DaemonGame> =
@@ -494,16 +600,19 @@ impl LauncherApp {
             return;
         }
         let focus = self.state.focused_game_index;
-        let mut indices = vec![focus];
-        for offset in 1..=4usize {
-            if focus >= offset {
-                indices.push(focus - offset);
+        // (indice, distance au focus). Les couvertures couvrent toute la rangée
+        // visible à droite (≈ 8 tuiles) ; les fonds, plus lourds, seulement les
+        // voisins immédiats.
+        let mut indices = vec![(focus, 0usize)];
+        for offset in 1..=8usize {
+            if offset <= 3 && focus >= offset {
+                indices.push((focus - offset, offset));
             }
             if focus + offset < len {
-                indices.push(focus + offset);
+                indices.push((focus + offset, offset));
             }
         }
-        for index in indices {
+        for (index, distance) in indices {
             let Some(game) = self.state.games_library.get(index) else {
                 continue;
             };
@@ -513,7 +622,7 @@ impl LauncherApp {
                 self.loader
                     .request(&mut self.cache, &self.validator, &path, AssetKind::Cover);
             }
-            if let Some(path) = bg {
+            if let (Some(path), true) = (bg, distance <= 2) {
                 let kind = if self.state.blur_enabled {
                     AssetKind::BlurredBackground
                 } else {
@@ -595,6 +704,7 @@ impl LauncherApp {
                 }
             })
             .collect();
+        self.state.tile_scale_vel = vec![0.0; count];
         self.state.tile_alpha = (0..count)
             .map(|index| if index < focus { 0.0 } else { 1.0 })
             .collect();
@@ -602,16 +712,26 @@ impl LauncherApp {
 
     /// Anime positions, échelles et opacités. Retourne `true` si une animation
     /// est encore en cours (pour demander un repaint).
+    ///
+    /// Position et opacité suivent un lissage exponentiel ; l'échelle suit un
+    /// ressort amorti, ce qui donne un léger rebond à l'arrivée sur la tuile focus.
     fn animate_tiles(&mut self, delta_seconds: f32) -> bool {
         let count = self.state.games_library.len();
         if self.state.tile_x.len() != count {
             self.reset_tile_layout();
             return count > 0;
         }
+        if self.state.tile_scale_vel.len() != count {
+            self.state.tile_scale_vel = vec![0.0; count];
+        }
         let focus = self.state.focused_game_index;
         let x_t = 1.0 - (-delta_seconds * 13.0).exp();
-        let s_t = 1.0 - (-delta_seconds * 15.0).exp();
         let a_t = 1.0 - (-delta_seconds * 11.0).exp();
+
+        // Le ressort est intégré par sous-pas fixes (≈ 4 ms) : stable quel que
+        // soit le framerate.
+        let steps = (delta_seconds / 0.004).ceil().max(1.0) as u32;
+        let sub_dt = delta_seconds / steps as f32;
         let mut animating = false;
 
         for index in 0..count {
@@ -624,15 +744,68 @@ impl LauncherApp {
             let target_alpha = if index < focus { 0.0 } else { 1.0 };
 
             let dx = target_x - self.state.tile_x[index];
-            let ds = target_scale - self.state.tile_scales[index];
             let da = target_alpha - self.state.tile_alpha[index];
-            if dx.abs() > 0.25 || ds.abs() > 0.002 || da.abs() > 0.004 {
+
+            let mut scale = self.state.tile_scales[index];
+            let mut velocity = self.state.tile_scale_vel[index];
+            for _ in 0..steps {
+                let accel = theme::SPRING_STIFFNESS * (target_scale - scale)
+                    - theme::SPRING_DAMPING * velocity;
+                velocity += accel * sub_dt;
+                scale += velocity * sub_dt;
+            }
+
+            if dx.abs() > 0.25
+                || da.abs() > 0.004
+                || (target_scale - scale).abs() > 0.002
+                || velocity.abs() > 0.01
+            {
                 animating = true;
             }
             self.state.tile_x[index] += dx * x_t;
-            self.state.tile_scales[index] += ds * s_t;
             self.state.tile_alpha[index] += da * a_t;
+            self.state.tile_scales[index] = scale;
+            self.state.tile_scale_vel[index] = velocity;
         }
+        animating
+    }
+
+    /// Avance les transitions de présentation : apparition du héros, mise en
+    /// évidence des boutons, écran d'ouverture, vue détaillée et menu profil.
+    /// Retourne `true` tant qu'une de ces transitions est en cours.
+    fn update_presentation(&mut self, delta_seconds: f32) -> bool {
+        if self.state.focused_game_index != self.hero_focus {
+            self.hero_focus = self.state.focused_game_index;
+            self.hero_enter = 0.0;
+            self.state.focus_shine = 0.0;
+        }
+        self.state.focus_shine =
+            (self.state.focus_shine + delta_seconds / theme::SHINE_DURATION).min(1.0);
+        self.hero_enter = (self.hero_enter + delta_seconds * theme::HERO_ENTER_SPEED).min(1.0);
+        self.intro = (self.intro + delta_seconds * theme::INTRO_SPEED).min(1.0);
+        let mut animating = self.hero_enter < 1.0 || self.intro < 1.0;
+
+        let detail_target = if self.detail_game.is_some() { 1.0 } else { 0.0 };
+        self.detail_anim = theme::damp(self.detail_anim, detail_target, delta_seconds, 14.0);
+        if self.detail_game.is_some() {
+            self.detail_shown = self.detail_game;
+        } else if self.detail_anim < 0.004 {
+            self.detail_anim = 0.0;
+            self.detail_shown = None;
+        }
+        if (detail_target - self.detail_anim).abs() > 0.002 {
+            animating = true;
+        }
+
+        let profile_target = if self.profile_menu_open { 1.0 } else { 0.0 };
+        self.profile_anim = theme::damp(self.profile_anim, profile_target, delta_seconds, 16.0);
+        if !self.profile_menu_open && self.profile_anim < 0.004 {
+            self.profile_anim = 0.0;
+        }
+        if (profile_target - self.profile_anim).abs() > 0.002 {
+            animating = true;
+        }
+
         animating
     }
 
@@ -680,6 +853,9 @@ impl LauncherApp {
                 self.pending_close = true;
                 self.client.shutdown();
             }
+            settings_panel::SettingAction::Notice(message) => {
+                self.toast = Some(Toast::info(message.to_string()));
+            }
             settings_panel::SettingAction::Close => self.settings.close_now(),
         }
     }
@@ -702,7 +878,9 @@ impl LauncherApp {
         };
         let elapsed = toast.created_at.elapsed().as_secs_f32();
         let remaining = (theme::TOAST_DURATION - elapsed).max(0.0);
-        let alpha = (remaining / 0.45).min(1.0);
+        // Entrée en glissement, sortie en fondu.
+        let enter = theme::ease_out_cubic(elapsed / 0.38);
+        let alpha = (remaining / 0.45).min(1.0) * enter;
         let palette = theme::Palette::default();
         let color = match toast.kind {
             ToastKind::Info => palette.accent,
@@ -724,7 +902,7 @@ impl LauncherApp {
         let rect = Rect::from_min_size(
             Pos2::new(
                 screen.center().x - size.x * 0.5,
-                screen.max.y - 132.0 - size.y,
+                screen.min.y + 28.0 - (1.0 - enter) * 20.0,
             ),
             size,
         );
@@ -755,9 +933,13 @@ impl LauncherApp {
     }
 
     fn draw_detail_overlay(&self, context: &Context) {
-        let Some(index) = self.detail_game else {
+        let Some(index) = self.detail_shown else {
             return;
         };
+        let t = theme::ease_out_cubic(self.detail_anim);
+        if t <= 0.001 {
+            return;
+        }
         let Some(game) = self.state.games_library.get(index) else {
             return;
         };
@@ -768,19 +950,29 @@ impl LauncherApp {
             egui::Order::Foreground,
             Id::new("detail_backdrop"),
         ));
-        backdrop.rect_filled(screen, Rounding::ZERO, theme::with_alpha(Color32::BLACK, 0.62));
+        backdrop.rect_filled(screen, Rounding::ZERO, theme::with_alpha(Color32::BLACK, 0.62 * t));
 
         let width = 640.0_f32.min(screen.width() - 96.0);
         let height = 330.0_f32.min(screen.height() - 140.0);
-        let panel = Rect::from_center_size(screen.center(), Vec2::new(width, height));
+        // Zoom d'entrée : la vue grandit de 94 % à 100 % pendant le fondu.
+        let scale = 0.94 + 0.06 * t;
+        let panel = Rect::from_center_size(screen.center(), Vec2::new(width, height) * scale);
 
+        // Calque Tooltip : la fiche reste au-dessus du voile sombre.
         egui::Area::new(Id::new("detail_overlay"))
             .fixed_pos(panel.min)
-            .order(egui::Order::Foreground)
+            .order(egui::Order::Tooltip)
             .show(context, |ui| {
+                ui.set_opacity(t);
                 let (rect, _) = ui.allocate_exact_size(panel.size(), egui::Sense::hover());
                 let painter = ui.painter_at(rect);
-                theme::soft_shadow(&painter, rect, theme::panel_radius(), 1.0);
+                // L'ombre déborde du panneau : elle ne doit pas être rognée.
+                theme::soft_shadow(
+                    &ui.painter().with_clip_rect(rect.expand(24.0)),
+                    rect,
+                    theme::panel_radius(),
+                    1.0,
+                );
                 painter.rect_filled(rect, theme::panel_radius(), palette.surface_elevated);
                 painter.rect_stroke(
                     rect,
@@ -795,12 +987,16 @@ impl LauncherApp {
                 );
                 painter.rect_filled(thumb, Rounding::same(16.0), palette.surface);
                 let cover = self.cover_handle(index);
-                let texture_id = cover
-                    .as_ref()
-                    .map(|handle| handle.id())
-                    .or_else(|| self.gradients.get(&game.id).map(|handle| handle.id()));
+                let (texture_id, thumb_uv) = match cover.as_ref() {
+                    Some(handle) => (Some(handle.id()), theme::cover_uv(handle.size())),
+                    None => (
+                        self.gradients.get(&game.id).map(|handle| handle.id()),
+                        Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    ),
+                };
                 if let Some(texture_id) = texture_id {
                     egui::Image::new(egui::load::SizedTexture::new(texture_id, thumb.size()))
+                        .uv(thumb_uv)
                         .rounding(Rounding::same(16.0))
                         .paint_at(ui, thumb);
                 }
@@ -822,6 +1018,8 @@ impl LauncherApp {
                 // Texte.
                 let text_x = thumb.max.x + 24.0;
                 let text_width = (rect.max.x - 24.0 - text_x).max(120.0);
+                // Le titre s'arrête avant le repère de fermeture (coin haut droit).
+                let title_width = (text_width - 44.0).max(80.0);
                 theme::ellipsis_text(
                     &painter,
                     Pos2::new(text_x, rect.min.y + 58.0),
@@ -829,7 +1027,7 @@ impl LauncherApp {
                     &game.title,
                     theme::bold(26.0),
                     palette.text_primary,
-                    text_width,
+                    title_width,
                 );
                 painter.text(
                     Pos2::new(text_x, rect.min.y + 70.0),
@@ -898,69 +1096,6 @@ impl LauncherApp {
             });
     }
 
-    fn draw_hints(&self, context: &Context) {
-        if self.settings.open || self.profile_menu_open || self.detail_game.is_some() {
-            return;
-        }
-        let screen = context.screen_rect();
-        let palette = theme::Palette::default();
-        let painter = context.layer_painter(egui::LayerId::new(
-            egui::Order::Foreground,
-            Id::new("hints"),
-        ));
-        let hints = [
-            ("A", "Jouer"),
-            ("X", "Détails"),
-            ("Y", "Paramètres"),
-            ("B", "Retour"),
-            ("P", "Profil"),
-        ];
-        let cap = 20.0;
-        let group_gap = 22.0;
-        let label_font = theme::font(12.0);
-        let widths: Vec<f32> = hints
-            .iter()
-            .map(|(_, label)| {
-                cap + 7.0
-                    + painter
-                        .layout_no_wrap(label.to_string(), label_font.clone(), palette.text_secondary)
-                        .size()
-                        .x
-            })
-            .collect();
-        let total: f32 = widths.iter().sum::<f32>() + group_gap * (hints.len() - 1) as f32;
-        let y = screen.max.y - 36.0;
-        let mut x = screen.max.x - theme::CONTENT_MARGIN - total;
-
-        for ((key, label), width) in hints.iter().zip(widths.iter()) {
-            let cap_rect = Rect::from_center_size(Pos2::new(x + cap * 0.5, y), Vec2::splat(cap));
-            painter.rect_filled(
-                cap_rect,
-                Rounding::same(6.0),
-                theme::with_alpha(Color32::WHITE, 0.13),
-            );
-            painter.rect_stroke(
-                cap_rect,
-                Rounding::same(6.0),
-                Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.16)),
-            );
-            painter.text(
-                cap_rect.center(),
-                egui::Align2::CENTER_CENTER,
-                *key,
-                theme::bold(10.0),
-                palette.text_primary,
-            );
-            painter.text(
-                Pos2::new(x + cap + 7.0, y),
-                egui::Align2::LEFT_CENTER,
-                *label,
-                label_font.clone(),
-                palette.text_secondary,
-            );
-            x += width + group_gap;
-        }
-    }
 }
 
 impl eframe::App for LauncherApp {
@@ -997,6 +1132,7 @@ impl eframe::App for LauncherApp {
 
         // --- Animations ---
         let tiles_animating = self.animate_tiles(delta);
+        let presentation_animating = self.update_presentation(delta);
         self.renderer.update_animation(delta);
 
         // --- Synchronisation du panneau de paramètres ---
@@ -1005,6 +1141,7 @@ impl eframe::App for LauncherApp {
         self.settings.connection = self.state.connection_status.clone();
         self.settings.game_count = self.state.games_library.len();
         self.settings.error_code = self.state.last_error_code;
+        self.settings.profile_name = self.profile_name.clone();
 
         // --- Fond ---
         let fallback_id = self
@@ -1036,9 +1173,16 @@ impl eframe::App for LauncherApp {
         };
 
         // --- Interface principale ---
+        // Les paramètres occupent tout l'écran : l'accueil est alors masqué.
+        let main_visible = !self.settings.is_visible();
+        let mut pill_rects: Option<[Rect; 3]> = None;
+        let mut tile_rect: Option<Rect> = None;
         let profile_anchor = egui::CentralPanel::default()
             .frame(egui::Frame::none())
             .show(context, |ui| {
+                if !main_visible {
+                    return Rect::NOTHING;
+                }
                 let profile_anchor = header::draw(
                     ui,
                     &self.state,
@@ -1059,7 +1203,9 @@ impl eframe::App for LauncherApp {
                     if let Some(entry) =
                         self.state.games_library.get(self.state.focused_game_index)
                     {
-                        hero_tile::draw(ui, hero_area, entry, self.state.hero_action);
+                        let enter = theme::ease_out_cubic(self.hero_enter);
+                        ui.set_opacity(enter);
+                        pill_rects = Some(hero_tile::draw(ui, hero_area, entry, enter));
                     }
                 });
 
@@ -1068,7 +1214,7 @@ impl eframe::App for LauncherApp {
                     Vec2::new(screen.width(), theme::CAROUSEL_HEIGHT),
                 );
                 ui.allocate_ui_at_rect(carousel_area, |ui| {
-                    carousel::draw(ui, carousel_area, &self.state, &visuals);
+                    tile_rect = carousel::draw(ui, carousel_area, &self.state, &visuals);
                 });
 
                 profile_anchor
@@ -1076,12 +1222,14 @@ impl eframe::App for LauncherApp {
             .inner;
 
         // --- Menu de profil ---
-        if self.profile_menu_open {
-            profile_menu::draw(
+        let mut menu_row_rect: Option<Rect> = None;
+        if self.profile_menu_open || self.profile_anim > 0.0 {
+            menu_row_rect = profile_menu::draw(
                 context,
                 profile_anchor,
                 &self.profile_name,
                 self.profile_menu_selected,
+                theme::ease_out_cubic(self.profile_anim),
             );
         }
 
@@ -1095,8 +1243,44 @@ impl eframe::App for LauncherApp {
 
         // --- Toast, indices, FPS ---
         self.update_toast();
+        // --- Sélecteur unique : une seule bordure bleue glisse sur l'élément actif ---
+        let ring_target = if self.settings.open {
+            self.settings.focus_rect
+        } else if self.profile_menu_open {
+            menu_row_rect
+        } else {
+            match self.state.focus_row {
+                FocusRow::Profile => Some(profile_anchor),
+                FocusRow::Actions => pill_rects.map(|rects| rects[self.state.hero_action.min(2)]),
+                FocusRow::Tiles => tile_rect,
+            }
+        };
+        let ring_fade_target = if ring_target.is_some() && self.detail_game.is_none() {
+            1.0
+        } else {
+            0.0
+        };
+        self.focus_ring_alpha = theme::damp(self.focus_ring_alpha, ring_fade_target, delta, 14.0);
+        let mut ring_animating = (ring_fade_target - self.focus_ring_alpha).abs() > 0.004;
+        if let Some(target) = ring_target {
+            let next = match self.focus_ring {
+                Some(current) => {
+                    let moved = (current.min - target.min).length() > 0.3
+                        || (current.max - target.max).length() > 0.3;
+                    ring_animating |= moved;
+                    theme::lerp_rect(current, target, 1.0 - (-delta * 16.0).exp())
+                }
+                None => target,
+            };
+            self.focus_ring = Some(next);
+        }
+        if let Some(ring) = self.focus_ring {
+            if self.focus_ring_alpha > 0.004 {
+                draw_focus_ring(context, ring, self.focus_ring_alpha);
+            }
+        }
+
         self.draw_toast(context);
-        self.draw_hints(context);
 
         if self.state.show_fps {
             let fps = 1.0 / delta.max(0.001);
@@ -1105,12 +1289,23 @@ impl eframe::App for LauncherApp {
                 Id::new("fps"),
             ));
             painter.text(
-                Pos2::new(screen.min.x + theme::CONTENT_MARGIN, screen.max.y - 36.0),
+                Pos2::new(screen.min.x + theme::CONTENT_MARGIN, screen.max.y - 20.0),
                 egui::Align2::LEFT_CENTER,
                 format!("{fps:.0} FPS"),
                 theme::font(11.0),
                 theme::Palette::default().text_secondary,
             );
+        }
+
+        // --- Écran d'ouverture : voile noir qui se dissout ---
+        if self.intro < 1.0 {
+            let veil = 1.0 - theme::ease_out_cubic(self.intro);
+            context
+                .layer_painter(egui::LayerId::new(
+                    egui::Order::Tooltip,
+                    Id::new("intro_veil"),
+                ))
+                .rect_filled(screen, Rounding::ZERO, theme::with_alpha(Color32::BLACK, veil));
         }
 
         // --- Fermeture demandée ---
@@ -1119,13 +1314,23 @@ impl eframe::App for LauncherApp {
             self.pending_close = false;
         }
 
-        // --- Repaint si nécessaire ---
-        if tiles_animating
-            || self.settings.is_animating()
-            || self.renderer.fade < 1.0
-            || self.toast.is_some()
-        {
-            context.request_repaint();
+        // --- Cadence de rendu ---
+        // Rendu continu : chaque image en demande immédiatement une autre, et la
+        // synchronisation verticale (activée par défaut dans `main.rs`) bloque la
+        // présentation sur le rafraîchissement de la dalle (60, 120, 144 Hz…).
+        // Le FPS est donc toujours égal à celui de l'écran, sans réglage, et la
+        // manette est lue à chaque image. `ZEEDEFI_FPS_LIMIT=N` plafonne la
+        // cadence (économie de batterie) ; `ZEEDEFI_NO_VSYNC=1` la débride.
+        let _ = (
+            tiles_animating,
+            presentation_animating,
+            ring_animating,
+        );
+        match self.fps_limit {
+            Some(limit) => {
+                context.request_repaint_after(Duration::from_secs_f32(1.0 / limit));
+            }
+            None => context.request_repaint(),
         }
     }
 
@@ -1143,6 +1348,35 @@ impl eframe::App for LauncherApp {
 // ----------------------------------------------------------------------
 // Utilitaires
 // ----------------------------------------------------------------------
+
+/// Dessine le sélecteur unique : une bordure accent avec une lueur douce.
+fn draw_focus_ring(context: &Context, rect: Rect, alpha: f32) {
+    let painter = context.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        Id::new("focus_ring"),
+    ));
+    let outline = rect.expand(6.0);
+    // Les tuiles ont des coins de 20 px ; les boutons et lignes sont en pilule.
+    let base_radius = if rect.height() >= 120.0 {
+        theme::focus_radius().nw
+    } else {
+        (rect.height() * 0.5).min(22.0)
+    };
+    let radius = base_radius + 6.0;
+    for layer in 1..=4 {
+        let grow = layer as f32 * 3.0;
+        painter.rect_stroke(
+            outline.expand(grow),
+            Rounding::same(radius + grow),
+            Stroke::new(2.0_f32, theme::with_alpha(theme::ACCENT, alpha * 0.22 / layer as f32)),
+        );
+    }
+    painter.rect_stroke(
+        outline,
+        Rounding::same(radius),
+        Stroke::new(3.0_f32, theme::with_alpha(theme::ACCENT, alpha)),
+    );
+}
 
 fn path_label(path: &Option<PathBuf>, fallback: &str) -> String {
     path.as_ref()
@@ -1237,6 +1471,18 @@ fn install_fonts(context: &Context) {
             .or_default()
             .insert(0, "ui".to_owned());
         has_regular = true;
+    }
+    if bold.is_none() {
+        // Sans police grasse, la famille « bold » doit quand même exister
+        // (sinon egui panique au premier texte) : repli sur la police normale.
+        let fallback = fonts
+            .families
+            .get(&FontFamily::Proportional)
+            .cloned()
+            .unwrap_or_default();
+        fonts
+            .families
+            .insert(FontFamily::Name("bold".into()), fallback);
     }
     if let Some(bytes) = bold {
         fonts

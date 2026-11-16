@@ -21,10 +21,12 @@ use tracing::{debug, trace, warn};
 
 
 /// Capacité du cache LRU (nombre de textures).
-pub const CACHE_CAPACITY: usize = 20;
+pub const CACHE_CAPACITY: usize = 36;
 
 /// Largeur maximale des fonds d'écran décodés (le fond est étiré à l'écran).
 pub const MAX_BACKGROUND_WIDTH: u32 = 1920;
+/// Largeur maximale d'une couverture (les tuiles font 370 px au plus).
+pub const MAX_COVER_WIDTH: u32 = 640;
 
 /// Sigma du flou gaussien appliqué aux fonds d'écran (en pixels).
 pub const BACKGROUND_BLUR_SIGMA: f32 = 4.0;
@@ -317,8 +319,9 @@ fn decode_asset(path: &Path, kind: AssetKind) -> LoadResult {
     };
     let (color_image, bytes) = match kind {
         AssetKind::Cover => {
-            let raw = image.as_raw().to_vec();
-            let size = image.dimensions();
+            let resized = downscale(&image, MAX_COVER_WIDTH);
+            let raw = resized.as_raw().to_vec();
+            let size = resized.dimensions();
             let color = ColorImage::from_rgba_unmultiplied([size.0 as usize, size.1 as usize], &raw);
             (color, raw.len())
         }

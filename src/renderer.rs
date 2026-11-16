@@ -104,7 +104,10 @@ impl BackgroundRenderer {
 
         // Couche précédente (sortante).
         if let Some(previous) = &self.previous {
-            draw_layer(&painter, previous, viewport, 1.0 - fade, zoom);
+            // Tant qu'un nouveau fond arrive, l'ancien reste opaque dessous :
+            // deux couches à 50 % laisseraient transparaître le fond sombre.
+            let alpha = if self.current.is_some() { 1.0 } else { 1.0 - fade };
+            draw_layer(&painter, previous, viewport, alpha, zoom);
         }
 
         // Couche courante (entrante).

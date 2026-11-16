@@ -40,14 +40,15 @@ Variables d'environnement :
 - `ZEEDEFI_ASSET_ROOTS` : racines autorisées pour les assets (séparateur `:`).
 - `RUST_LOG` : niveau de log (défaut `info,zeedefi_launcher=debug`).
 - `ZEEDEFI_FPS=1` : affiche le compteur de frames en bas à gauche.
-- `ZEEDEFI_NO_VSYNC=1` : désactive la synchronisation verticale (diagnostic de performance).
+- `ZEEDEFI_NO_VSYNC=1` : désactive la synchronisation verticale (diagnostic de performance, FPS non plafonné).
+- `ZEEDEFI_FPS_LIMIT=N` : plafonne la cadence à N images/s (≥ 10), utile sur batterie. Par défaut le rendu suit le rafraîchissement de l'écran (vsync).
 - `ZEEDEFI_PROFILE` : nom de profil affiché (sinon champ GECOS de `/etc/passwd`).
 
 ## Contrôles
 
 Manette : stick gauche / D-pad = navigation, A = valider, B = retour,
 X = détails, Y = paramètres, Start = menu de profil, stick droit X =
-défilement rapide, gâchettes = page précédente/suivante.
+défilement rapide (plus il est incliné, plus c'est rapide), gâchettes = page précédente/suivante.
 
 Clavier : flèches = navigation, Entrée/Espace = valider, Échap = retour,
 X = détails, Y/S = paramètres, Tab/P = menu de profil, PageUp/PageDown = pages.

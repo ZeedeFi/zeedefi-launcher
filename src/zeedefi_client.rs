@@ -204,10 +204,21 @@ async fn run_client(
                 info!(socket = %socket_path.display(), "connecté au démon ZeedeFi");
                 let _ = event_tx.send(ClientEvent::Connected);
                 backoff = BACKOFF_INITIAL;
-                if let Err(error) = run_session(stream, &mut request_rx, &event_tx, &shutdown).await {
-                    warn!(error = %error, "session démon terminée");
-                }
+                let outcome = run_session(stream, &mut request_rx, &event_tx, &shutdown).await;
                 let _ = event_tx.send(ClientEvent::Disconnected);
+                match outcome {
+                    // Arrêt demandé (ou canal fermé) : on ne se reconnecte pas.
+                    Ok(()) => break,
+                    Err(error) => {
+                        warn!(error = %error, "session démon terminée");
+                        // Pause avant de rouvrir : évite une boucle serrée si le
+                        // démon referme la connexion aussitôt.
+                        tokio::select! {
+                            _ = shutdown.notified() => break,
+                            _ = tokio::time::sleep(BACKOFF_INITIAL) => {}
+                        }
+                    }
+                }
             }
             Err(error) => {
                 let code = classify_connect_error(&socket_path, &error);

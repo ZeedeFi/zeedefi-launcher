@@ -63,20 +63,6 @@ pub fn draw(
         Pos2::new(chevron_point.x + 14.0, center_y + 30.0),
     );
 
-    // Fond du bloc uniquement lorsque le menu est ouvert (repère d'ancrage).
-    if menu_open {
-        painter.rect_filled(
-            profile_rect,
-            Rounding::same(14.0),
-            theme::with_alpha(Color32::WHITE, 0.10),
-        );
-        painter.rect_stroke(
-            profile_rect,
-            Rounding::same(14.0),
-            Stroke::new(1.0_f32, theme::with_alpha(Color32::WHITE, 0.08)),
-        );
-    }
-
     // Avatar stylisé (dégradé de disques + pictogramme).
     painter.circle_filled(
         avatar_center,
@@ -98,11 +84,7 @@ pub fn draw(
         avatar_radius + 2.0,
         Stroke::new(
             2.0_f32,
-            if menu_open {
-                theme::with_alpha(Color32::WHITE, 0.92)
-            } else {
-                theme::with_alpha(theme::ACCENT, 0.75)
-            },
+            theme::with_alpha(theme::ACCENT, 0.75),
         ),
     );
 

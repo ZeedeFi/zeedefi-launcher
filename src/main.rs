@@ -34,7 +34,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let client = ZeedeFiClient::spawn(runtime.handle().clone(), socket_path);
 
+    // Synchronisation verticale activée : le FPS suit le rafraîchissement de la
+    // dalle (désactivable avec ZEEDEFI_NO_VSYNC pour les diagnostics).
     let mut options = eframe::NativeOptions {
+        vsync: true,
         viewport: egui::ViewportBuilder::default()
             .with_title("ZeedeFi Launcher")
             .with_fullscreen(true)
